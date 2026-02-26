@@ -1,0 +1,36 @@
+# Backend
+__pycache__/
+*.pyc
+*.pyo
+.env
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+
+backend/venv
+backend/app/ml/models/*.pkl
+backend/app/ml/models/*.joblib
+
+# Frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# Docker
+*.log
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Data
+*.csv
+*.parquet
+ml/notebooks/.ipynb_checkpoints/
