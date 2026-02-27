@@ -1,20 +1,23 @@
 """
-Novelle — Risk Engine: rule-based + ML-ready tri-domain risk scoring.
+Novelle — Risk Engine: ML-powered + rule-based tri-domain risk scoring.
 Mental Health (PHQ-9, GAD-7, mood, stress, sleep, sentiment)
 Physical Health (BP, blood sugar, BMI, hemoglobin, symptoms)
-Fetal Health (fetal movement, maternal risk factors)
+Fetal Health (fetal movement, CTG data, maternal risk factors)
+
+ML models are tried first; falls back to rule-based scoring if models unavailable.
 """
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import date, timedelta
-from typing import List
+from typing import List, Optional
 from app.models.user import User
 from app.models.profile import PregnancyProfile
 from app.models.health import HealthLog
 from app.models.mental import MentalHealthAssessment
 from app.models.risk import RiskScore
 from app.models.escalation import Escalation
+from app.ml.utils import predict_mental_risk, predict_physical_risk, predict_fetal_risk
 
 
 class RiskEngine:
@@ -87,8 +90,68 @@ class RiskEngine:
             return {"level": "LOW", "confidence": 0.5, "features": {}}
 
         latest = assessments[0]
-        score = 0
         features = {}
+        
+        # Collect features for ML model
+        if latest.phq9_score is not None:
+            features["phq9_score"] = latest.phq9_score
+        if latest.gad7_score is not None:
+            features["gad7_score"] = latest.gad7_score
+        if latest.mood_score is not None:
+            features["mood_score"] = latest.mood_score
+        if latest.stress_level is not None:
+            features["stress_level"] = latest.stress_level
+        if latest.social_support_score is not None:
+            features["social_support_score"] = latest.social_support_score
+        
+        # Add profile data for ML model
+        if profile:
+            features["age"] = profile.age or 28
+            features["pregnancy_week"] = profile.pregnancy_week or 20
+            features["previous_pregnancies"] = profile.previous_pregnancies or 0
+        else:
+            features["age"] = 28
+            features["pregnancy_week"] = 20
+            features["previous_pregnancies"] = 0
+        
+        # Try ML prediction first
+        ml_result = predict_mental_risk(features)
+        if ml_result:
+            # Map ML risk level to sub-risks based on features
+            dep = "LOW"
+            if features.get("phq9_score", 0) >= 15:
+                dep = "HIGH"
+            elif features.get("phq9_score", 0) >= 10:
+                dep = "MEDIUM"
+                
+            anx = "LOW"
+            if features.get("gad7_score", 0) >= 15:
+                anx = "HIGH"
+            elif features.get("gad7_score", 0) >= 10:
+                anx = "MEDIUM"
+            
+            isolation = features.get("social_support_score", 5) <= 2
+            
+            postpartum = "LOW"
+            if profile and profile.trimester == "postpartum":
+                if latest.epds_score and latest.epds_score >= 13:
+                    postpartum = "HIGH"
+                elif latest.epds_score and latest.epds_score >= 10:
+                    postpartum = "MEDIUM"
+            
+            return {
+                "level": ml_result["risk_level"].upper(),
+                "confidence": ml_result["confidence"],
+                "depression": dep,
+                "anxiety": anx,
+                "isolation": isolation,
+                "postpartum": postpartum,
+                "features": features,
+                "ml_probabilities": ml_result.get("probabilities", {}),
+            }
+
+        # Fall back to rule-based scoring
+        score = 0
 
         # PHQ-9
         if latest.phq9_score is not None:
@@ -186,8 +249,63 @@ class RiskEngine:
         if not logs:
             return {"level": "LOW", "confidence": 0.5, "features": {}}
 
-        score = 0
         features = {}
+        
+        # Collect features for ML model from latest log
+        latest = logs[0]
+        
+        # Map HealthLog fields to ML model expected features
+        features["Age"] = profile.age if profile and profile.age else 28
+        features["SystolicBP"] = latest.bp_systolic if latest.bp_systolic else 120
+        features["DiastolicBP"] = latest.bp_diastolic if latest.bp_diastolic else 80
+        features["BS"] = latest.blood_sugar_fasting if latest.blood_sugar_fasting else 5.5
+        features["BodyTemp"] = latest.body_temp if hasattr(latest, 'body_temp') and latest.body_temp else 98.6
+        features["HeartRate"] = latest.heart_rate if hasattr(latest, 'heart_rate') and latest.heart_rate else 75
+        
+        # Try ML prediction first
+        ml_result = predict_physical_risk(features)
+        if ml_result:
+            # Compute sub-risks from features
+            bp_vals = [(l.bp_systolic, l.bp_diastolic) for l in logs if l.bp_systolic and l.bp_diastolic]
+            sugar_vals = [l.blood_sugar_fasting for l in logs if l.blood_sugar_fasting]
+            
+            hyp = "LOW"
+            if bp_vals:
+                avg_sys = sum(s for s, d in bp_vals) / len(bp_vals)
+                if avg_sys >= 140:
+                    hyp = "HIGH"
+                elif avg_sys >= 130:
+                    hyp = "MEDIUM"
+            
+            diab = "LOW"
+            if sugar_vals:
+                avg_sugar = sum(sugar_vals) / len(sugar_vals)
+                if avg_sugar >= 126:
+                    diab = "HIGH"
+                elif avg_sugar >= 100:
+                    diab = "MEDIUM"
+            
+            anemia = "LOW"
+            if profile and profile.hemoglobin_level:
+                if profile.hemoglobin_level < 7:
+                    anemia = "HIGH"
+                elif profile.hemoglobin_level < 10:
+                    anemia = "MEDIUM"
+            
+            return {
+                "level": ml_result["risk_level"].upper(),
+                "confidence": ml_result["confidence"],
+                "hypertension": hyp,
+                "diabetes": diab,
+                "anemia": anemia,
+                "infection": "LOW",
+                "nutrition": "MEDIUM" if (profile and profile.bmi and profile.bmi < 18.5) else "LOW",
+                "features": features,
+                "ml_probabilities": ml_result.get("probabilities", {}),
+            }
+
+        # Fall back to rule-based scoring
+        score = 0
 
         # BP analysis
         bp_vals = [(l.bp_systolic, l.bp_diastolic) for l in logs if l.bp_systolic and l.bp_diastolic]
@@ -286,6 +404,75 @@ class RiskEngine:
         if not logs:
             return {"level": "LOW", "confidence": 0.5, "features": {}}
 
+        features = {}
+        week = profile.pregnancy_week if profile else 20
+        
+        # Check if CTG data is available (for ML model)
+        latest = logs[0]
+        ctg_data_available = hasattr(latest, 'baseline_fhr') and latest.baseline_fhr is not None
+        
+        if ctg_data_available:
+            # Collect CTG features for ML model
+            features["baseline value"] = latest.baseline_fhr
+            features["accelerations"] = getattr(latest, 'ctg_accelerations', 0.004) or 0.004
+            features["fetal_movement"] = getattr(latest, 'ctg_fetal_movement', 0.003) or 0.003
+            features["uterine_contractions"] = getattr(latest, 'ctg_contractions', 0.004) or 0.004
+            features["light_decelerations"] = getattr(latest, 'ctg_light_decel', 0) or 0
+            features["severe_decelerations"] = getattr(latest, 'ctg_severe_decel', 0) or 0
+            features["prolongued_decelerations"] = getattr(latest, 'ctg_prolonged_decel', 0) or 0
+            features["abnormal_short_term_variability"] = getattr(latest, 'ctg_abnormal_stv', 30) or 30
+            features["mean_value_of_short_term_variability"] = getattr(latest, 'ctg_mean_stv', 1.5) or 1.5
+            features["percentage_of_time_with_abnormal_long_term_variability"] = getattr(latest, 'ctg_pct_abnormal_ltv', 10) or 10
+            features["mean_value_of_long_term_variability"] = getattr(latest, 'ctg_mean_ltv', 8) or 8
+            features["histogram_width"] = getattr(latest, 'ctg_hist_width', 70) or 70
+            features["histogram_min"] = getattr(latest, 'ctg_hist_min', 62) or 62
+            features["histogram_max"] = getattr(latest, 'ctg_hist_max', 180) or 180
+            features["histogram_number_of_peaks"] = getattr(latest, 'ctg_hist_peaks', 4) or 4
+            features["histogram_number_of_zeroes"] = getattr(latest, 'ctg_hist_zeroes', 0) or 0
+            features["histogram_mode"] = getattr(latest, 'ctg_hist_mode', 136) or 136
+            features["histogram_mean"] = getattr(latest, 'ctg_hist_mean', 135) or 135
+            features["histogram_median"] = getattr(latest, 'ctg_hist_median', 138) or 138
+            features["histogram_variance"] = getattr(latest, 'ctg_hist_variance', 12) or 12
+            features["histogram_tendency"] = getattr(latest, 'ctg_hist_tendency', 0) or 0
+            
+            # Try ML prediction
+            ml_result = predict_fetal_risk(features)
+            if ml_result:
+                # Compute sub-risks
+                fetal_vals = [l.fetal_movement_count for l in logs if l.fetal_movement_count is not None]
+                
+                preterm = "LOW"
+                if week < 37 and ml_result["risk_level"].upper() == "HIGH":
+                    preterm = "HIGH"
+                elif week < 37 and ml_result["risk_level"].upper() == "MEDIUM":
+                    preterm = "MEDIUM"
+                
+                low_bw = "LOW"
+                if profile and profile.bmi and profile.bmi < 18.5:
+                    low_bw = "MEDIUM"
+                if ml_result["risk_level"].upper() == "HIGH":
+                    low_bw = "HIGH"
+                
+                growth = "LOW"
+                if fetal_vals and week >= 28:
+                    avg_movements = sum(fetal_vals) / len(fetal_vals)
+                    if avg_movements < 3:
+                        growth = "HIGH"
+                    elif avg_movements < 6:
+                        growth = "MEDIUM"
+                
+                return {
+                    "level": ml_result["risk_level"].upper(),
+                    "confidence": ml_result["confidence"],
+                    "preterm": preterm,
+                    "low_bw": low_bw,
+                    "growth": growth,
+                    "missed_care": "LOW",
+                    "features": features,
+                    "ml_probabilities": ml_result.get("probabilities", {}),
+                }
+
+        # Fall back to rule-based scoring (no CTG data or ML failed)
         score = 0
         features = {}
 
