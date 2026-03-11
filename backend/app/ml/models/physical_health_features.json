@@ -1,1 +1,12 @@
-["Age", "SystolicBP", "DiastolicBP", "BS", "BodyTemp", "HeartRate", "bp_mean", "bp_pulse_pressure", "hypertension_flag", "hyperglycemia_flag", "fever_flag", "tachycardia_flag", "bradycardia_flag", "age_risk", "bs_severity"]
+[
+  "Age",
+  "SystolicBP",
+  "DiastolicBP",
+  "BS",
+  "BodyTemp",
+  "HeartRate",
+  "PulsePressure",
+  "MeanArterialPressure",
+  "BP_BS_Interaction",
+  "Age_BP_Risk"
+]

@@ -14,13 +14,52 @@ class Base(DeclarativeBase):
     pass
 
 
+# ── URL normalization (handles Neon/Supabase/Railway URLs) ──
+import ssl as _ssl
+
+_ASYNCPG_UNSUPPORTED = {"sslmode", "channel_binding", "options", "connect_timeout",
+                         "sslrootcert", "sslcert", "sslkey", "application_name"}
+
+def _normalize_db_url(url: str) -> tuple[str, dict]:
+    """Convert any postgres:// URL to postgresql+asyncpg:// and strip unsupported params."""
+    for prefix in ("postgresql+psycopg2://", "postgresql+psycopg://", "postgres://", "postgresql://"):
+        if url.startswith(prefix):
+            url = "postgresql+asyncpg://" + url[len(prefix):]
+            break
+
+    connect_args: dict = {}
+    if "?" in url:
+        base, qs = url.split("?", 1)
+        kept, needs_ssl, sslmode = [], False, "disable"
+        for param in qs.split("&"):
+            if not param:
+                continue
+            key = param.split("=", 1)[0]
+            if key == "sslmode":
+                sslmode = param.split("=", 1)[1]
+                needs_ssl = sslmode in ("require", "verify-ca", "verify-full")
+            elif key not in _ASYNCPG_UNSUPPORTED:
+                kept.append(param)
+        url = base + ("?" + "&".join(kept) if kept else "")
+        if needs_ssl:
+            ctx = _ssl.create_default_context()
+            if sslmode == "require":
+                ctx.check_hostname = False
+                ctx.verify_mode = _ssl.CERT_NONE
+            connect_args["ssl"] = ctx
+    return url, connect_args
+
+_db_url, _connect_args = _normalize_db_url(settings.DATABASE_URL)
+
 # ── PostgreSQL (async) ──────────────────────────────
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    _db_url,
     echo=settings.DEBUG,
     pool_size=20,
     max_overflow=10,
+    connect_args=_connect_args,
 )
+
 
 AsyncSessionLocal = async_sessionmaker(
     engine,

@@ -393,8 +393,62 @@ def predict_fetal_risk(features: dict) -> Optional[dict]:
 
 def models_available() -> dict:
     """Check which ML models are available."""
+    nlp_ok = (
+        (MODEL_DIR / "nlp_sentiment_model.joblib").exists() and
+        (MODEL_DIR / "nlp_emotion_model.joblib").exists()
+    )
     return {
         "mental_health": (MODEL_DIR / "mental_health_xgb.joblib").exists(),
         "physical_health": (MODEL_DIR / "physical_health_ensemble.joblib").exists(),
         "fetal_health": (MODEL_DIR / "fetal_health_lgbm.joblib").exists(),
+        "nlp_sentiment": nlp_ok,
     }
+
+
+# ── NLP Prediction ──────────────────────────────────────────
+def predict_sentiment(text: str) -> Optional[dict]:
+    """Predict positive/negative sentiment using SST-2 TF-IDF model."""
+    model = _load("nlp_sentiment_model.joblib")
+    vectorizer = _load("nlp_tfidf_vectorizer.joblib")
+    
+    if not model or not vectorizer or not text.strip():
+        return None
+        
+    try:
+        X = vectorizer.transform([text])
+        pred = model.predict(X)[0]
+        proba = model.predict_proba(X)[0]
+        label = "Positive" if pred == 1 else "Negative"
+        return {
+            "sentiment": label,
+            "confidence": round(float(max(proba)), 3),
+            "score": round(float(proba[1]), 3)  # Probability of Positive
+        }
+    except Exception as e:
+        print(f"Sentiment prediction error: {e}")
+        return None
+
+def predict_emotion(text: str, top_k: int = 3) -> Optional[list]:
+    """Predict specific emotions using GoEmotions model."""
+    model = _load("nlp_emotion_model.joblib")
+    vectorizer = _load("nlp_emotion_tfidf.joblib")
+    labels = _load_features("nlp_emotion_labels.json")
+    
+    if not model or not vectorizer or not labels or not text.strip():
+        return None
+        
+    try:
+        X = vectorizer.transform([text])
+        proba = model.predict_proba(X)[0]
+        
+        # Zip labels with probabilities and sort
+        emotion_scores = [(labels[i], round(float(p), 3)) for i, p in enumerate(proba)]
+        emotion_scores.sort(key=lambda x: x[1], reverse=True)
+        
+        # Return top K that meet a minimum threshold
+        results = [{"emotion": em, "score": score} for em, score in emotion_scores[:top_k] if score > 0.05]
+        return results if results else [{"emotion": "neutral", "score": 1.0}]
+    except Exception as e:
+        print(f"Emotion prediction error: {e}")
+        return None
+

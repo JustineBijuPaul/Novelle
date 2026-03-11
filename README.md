@@ -35,7 +35,7 @@ Novelle is a full-stack AI-powered maternal health platform that tracks physical
 - **Framework**: FastAPI (Python 3.11+), async/await
 - **Database**: PostgreSQL 16 (SQLAlchemy async ORM) + MongoDB 7 (Motor) + Redis 7
 - **Auth**: JWT (python-jose) + bcrypt password hashing
-- **ML**: Rule-based risk scoring (MVP) — stubs for XGBoost, LightGBM, SHAP
+- **ML**: Trained XGBoost (Mental Health), Ensemble (Physical Health), LightGBM (Fetal Health), and Logistic Regression (NLP Sentiment) models using SMOTE for class imbalance. SHAP integration for explainability.
 - **NLP**: Sentiment analysis, crisis keyword detection, emotion classification
 
 ### Frontend
@@ -98,6 +98,14 @@ novelle/
 - Redis 7+
 - Docker & Docker Compose (optional)
 
+### Running Infrastructure with Docker (Local Dev)
+If you prefer running just the databases via Docker while running the frontend/backend locally:
+
+```bash
+# Start MongoDB and Redis in the background
+docker-compose up -d mongodb redis
+```
+
 ### Quick Start with Docker
 
 ```bash
@@ -154,6 +162,16 @@ npm run dev
 # Opens at http://localhost:3000
 ```
 
+
+### Test Credentials
+```bash
+Test credentials (password: TestUser@123):
+
+testuser@novelle.app — pregnant user
+dr.anita@novelle.app — doctor
+admin@novelle.app — platform admin
+```
+
 ---
 
 ## API Endpoints
@@ -195,8 +213,8 @@ Novelle assesses risk across three domains:
 - **Scoring**: Clinical threshold rules (e.g., BP ≥ 140/90 → HIGH)
 
 ### Fetal Health Risk
-- **Inputs**: Fetal movement count, gestational week, maternal risk factors
-- **Scoring**: Movement thresholds + maternal risk cascade
+- **Inputs**: Cardiotocogram (CTG) features (baseline value, accelerations, decelerations, variability, and histogram patterns)
+- **Scoring**: LightGBM model trained using SMOTE (due to 9.4x class imbalance). Achieves highly accurate detection: 96.9% Accuracy, 0.93 Macro F1, and 0.99 AUC-ROC for detecting Pathological and Suspect outcomes vs Normal.
 
 ### Auto-Escalation
 HIGH-risk scores automatically trigger clinical escalation to the assigned doctor with severity level and reason.
@@ -248,5 +266,5 @@ This project is for educational and research purposes. Not approved for clinical
 ---
 
 <p align="center">
-  Built with 💕 for mothers everywhere
+  Built for mothers everywhere
 </p>

@@ -1,0 +1,42 @@
+{
+  "sentiment": {
+    "accuracy": 0.9401,
+    "f1": 0.9231,
+    "auc_roc": 0.9791
+  },
+  "emotion": {
+    "f1_micro": 0.3645,
+    "f1_macro": 0.3143,
+    "precision_micro": 0.2776,
+    "recall_micro": 0.5304,
+    "per_emotion_f1": {
+      "admiration": 0.4966,
+      "amusement": 0.5836,
+      "anger": 0.3262,
+      "annoyance": 0.2372,
+      "caring": 0.2527,
+      "confusion": 0.2438,
+      "curiosity": 0.3264,
+      "desire": 0.2968,
+      "disappointment": 0.1541,
+      "disapproval": 0.2744,
+      "disgust": 0.2443,
+      "embarrassment": 0.0886,
+      "excitement": 0.2248,
+      "fear": 0.4179,
+      "gratitude": 0.7417,
+      "grief": 0.1364,
+      "joy": 0.2868,
+      "love": 0.5984,
+      "nervousness": 0.0968,
+      "optimism": 0.2693,
+      "pride": 0.2637,
+      "realization": 0.1387,
+      "relief": 0.1846,
+      "remorse": 0.4393,
+      "sadness": 0.3016,
+      "surprise": 0.3483,
+      "neutral": 0.5135
+    }
+  }
+}
