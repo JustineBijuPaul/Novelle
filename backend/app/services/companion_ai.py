@@ -1,12 +1,11 @@
 """
 Novelle — AI Companion: empathetic pregnancy chatbot.
-Primary: Google Gemini API (free tier).
-Fallback: Context-aware rule-based responses with NLP sentiment/emotion analysis.
+LLM chain: Gemini → Groq (Llama 3.3) → rule-based fallback.
 """
 
 import random
+import time
 import logging
-from datetime import datetime
 from app.services.nlp_service import NLPService
 from app.core.config import settings
 
@@ -107,55 +106,72 @@ HELPLINES = (
 
 class CompanionAI:
     def __init__(self):
-        self._gemini_model = None
-        self._gemini_available = None
+        self._gemini_client = None
+        self._groq_client = None
+        self._gemini_checked = False
+        self._groq_checked = False
+        self._gemini_cooldown_until = 0
+        self._groq_cooldown_until = 0
 
-    @property
-    def gemini(self):
-        if self._gemini_available is False:
+    def _get_gemini(self):
+        if self._gemini_checked and self._gemini_client is None:
             return None
-        if self._gemini_model is not None:
-            return self._gemini_model
-
-        api_key = settings.GEMINI_API_KEY
-        if not api_key:
-            self._gemini_available = False
-            logger.info("Gemini API key not set — using rule-based fallback")
+        if self._gemini_client is not None:
+            if time.time() < self._gemini_cooldown_until:
+                return None
+            return self._gemini_client
+        self._gemini_checked = True
+        if not settings.GEMINI_API_KEY:
+            logger.info("Gemini API key not set")
             return None
-
         try:
-            import google.generativeai as genai
-            genai.configure(api_key=api_key)
-            self._gemini_model = genai.GenerativeModel(
-                "gemini-2.0-flash",
-                system_instruction=SYSTEM_PROMPT,
-                generation_config=genai.GenerationConfig(
-                    max_output_tokens=300,
-                    temperature=0.7,
-                ),
-            )
-            self._gemini_available = True
-            logger.info("Gemini companion model initialized")
-            return self._gemini_model
+            from google import genai
+            self._gemini_client = genai.Client(api_key=settings.GEMINI_API_KEY)
+            logger.info("Gemini client ready")
+            return self._gemini_client
         except Exception as e:
-            logger.warning(f"Failed to initialize Gemini: {e}")
-            self._gemini_available = False
+            logger.warning(f"Gemini init failed: {e}")
             return None
+
+    def _get_groq(self):
+        if self._groq_checked and self._groq_client is None:
+            return None
+        if self._groq_client is not None:
+            if time.time() < self._groq_cooldown_until:
+                return None
+            return self._groq_client
+        self._groq_checked = True
+        if not settings.GROQ_API_KEY:
+            logger.info("Groq API key not set")
+            return None
+        try:
+            from groq import Groq
+            self._groq_client = Groq(api_key=settings.GROQ_API_KEY)
+            logger.info("Groq client ready")
+            return self._groq_client
+        except Exception as e:
+            logger.warning(f"Groq init failed: {e}")
+            return None
+
+    # ── public entry ──────────────────────────────────
 
     def generate_response(self, message: str, user, history: list = None, context: dict = None) -> dict:
         crisis_flag = nlp.detect_crisis(message)
         if self._is_hard_crisis(message):
             crisis_flag = "URGENT"
-
         if crisis_flag == "URGENT":
             return self._crisis_response()
 
         sentiment_score, sentiment_label = nlp.analyze_sentiment(message)
 
-        if self.gemini:
-            response_text = self._gemini_response(message, user, history, context)
-        else:
-            response_text = self._rule_based_response(message, sentiment_label, context)
+        user_context = self._build_context(user, context)
+        chat_messages = self._build_messages(message, history, user_context)
+
+        response_text = (
+            self._try_gemini(chat_messages)
+            or self._try_groq(chat_messages)
+            or self._rule_based_response(message, sentiment_label, context)
+        )
 
         suggested_action = None
         if crisis_flag == "REVIEW_NEEDED":
@@ -171,9 +187,10 @@ class CompanionAI:
             "suggested_action": suggested_action,
         }
 
+    # ── helpers ───────────────────────────────────────
+
     def _is_hard_crisis(self, message: str) -> bool:
-        msg_lower = message.lower()
-        return any(kw in msg_lower for kw in CRISIS_KEYWORDS)
+        return any(kw in message.lower() for kw in CRISIS_KEYWORDS)
 
     def _crisis_response(self) -> dict:
         return {
@@ -185,33 +202,105 @@ class CompanionAI:
             "suggested_action": "Please contact a healthcare professional or crisis helpline immediately.",
         }
 
-    def _gemini_response(self, message: str, user, history: list = None, context: dict = None) -> str:
-        try:
-            chat_history = []
-            if history:
-                for h in reversed(history[-5:]):
-                    chat_history.append({"role": "user", "parts": [h.get("user_message", "")]})
-                    chat_history.append({"role": "model", "parts": [h.get("ai_response", "")]})
+    def _build_context(self, user, context: dict | None) -> str:
+        parts = []
+        if hasattr(user, "full_name") and user.full_name:
+            parts.append(f"User's name: {user.full_name}")
+        if context:
+            if context.get("pregnancy_week"):
+                parts.append(f"Pregnancy week: {context['pregnancy_week']}")
+            if context.get("trimester"):
+                parts.append(f"Trimester: {context['trimester']}")
+        return ". ".join(parts)
 
-            user_context = ""
-            if hasattr(user, 'full_name') and user.full_name:
-                user_context += f"User's name: {user.full_name}. "
-            if context:
-                if context.get("pregnancy_week"):
-                    user_context += f"Pregnancy week: {context['pregnancy_week']}. "
-                if context.get("trimester"):
-                    user_context += f"Trimester: {context['trimester']}. "
+    def _build_messages(self, message: str, history: list | None, user_context: str) -> list[dict]:
+        messages = [{"role": "system", "content": SYSTEM_PROMPT}]
+        if history:
+            for h in reversed(history[-5:]):
+                messages.append({"role": "user", "content": h.get("user_message", "")})
+                messages.append({"role": "assistant", "content": h.get("ai_response", "")})
+        prompt = f"[Context: {user_context}]\n\n{message}" if user_context else message
+        messages.append({"role": "user", "content": prompt})
+        return messages
 
-            prompt = message
-            if user_context:
-                prompt = f"[Context: {user_context}]\n\nUser: {message}"
+    # ── Gemini ────────────────────────────────────────
 
-            chat = self.gemini.start_chat(history=chat_history)
-            response = chat.send_message(prompt)
-            return response.text.strip()
-        except Exception as e:
-            logger.error(f"Gemini API error: {e}")
-            return self._rule_based_response(message, "neutral", context)
+    def _try_gemini(self, messages: list[dict]) -> str | None:
+        client = self._get_gemini()
+        if not client:
+            return None
+
+        from google.genai import types
+
+        contents = []
+        for m in messages:
+            if m["role"] == "system":
+                continue
+            role = "model" if m["role"] == "assistant" else "user"
+            contents.append(types.Content(
+                role=role,
+                parts=[types.Part.from_text(text=m["content"])],
+            ))
+
+        system_text = next((m["content"] for m in messages if m["role"] == "system"), "")
+        config = types.GenerateContentConfig(
+            system_instruction=system_text,
+            max_output_tokens=300,
+            temperature=0.7,
+        )
+
+        for model_name in ["gemini-2.0-flash-lite", "gemini-2.0-flash"]:
+            try:
+                resp = client.models.generate_content(
+                    model=model_name, contents=contents, config=config,
+                )
+                if resp.text:
+                    logger.info(f"Response via Gemini/{model_name}")
+                    return resp.text.strip()
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "RESOURCE_EXHAUSTED" in err:
+                    logger.info(f"Gemini {model_name} quota exhausted, skipping")
+                    continue
+                logger.warning(f"Gemini {model_name}: {e}")
+                continue
+
+        self._gemini_cooldown_until = time.time() + 300
+        logger.info("All Gemini models exhausted — cooldown 5 min")
+        return None
+
+    # ── Groq ──────────────────────────────────────────
+
+    def _try_groq(self, messages: list[dict]) -> str | None:
+        client = self._get_groq()
+        if not client:
+            return None
+
+        for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+            try:
+                resp = client.chat.completions.create(
+                    model=model,
+                    messages=messages,
+                    max_tokens=300,
+                    temperature=0.7,
+                )
+                text = resp.choices[0].message.content
+                if text:
+                    logger.info(f"Response via Groq/{model}")
+                    return text.strip()
+            except Exception as e:
+                err = str(e)
+                if "429" in err or "rate_limit" in err.lower():
+                    logger.info(f"Groq {model} rate-limited, skipping")
+                    continue
+                logger.warning(f"Groq {model}: {e}")
+                continue
+
+        self._groq_cooldown_until = time.time() + 60
+        logger.info("All Groq models failed — cooldown 1 min")
+        return None
+
+    # ── Rule-based fallback ───────────────────────────
 
     def _rule_based_response(self, message: str, sentiment_label: str, context: dict = None) -> str:
         topic = self._detect_topic(message)
@@ -240,9 +329,7 @@ class CompanionAI:
         return "default"
 
     def _contextual_default(self, message: str) -> str:
-        """Generate a more contextual default response instead of fully generic ones."""
         msg_lower = message.lower()
-
         question_words = ["what", "how", "when", "where", "why", "can", "should", "is", "are", "do", "will"]
         is_question = any(msg_lower.startswith(w) for w in question_words) or "?" in message
 
@@ -253,20 +340,17 @@ class CompanionAI:
                 "midwife", "ultrasound", "kick", "due date", "morning sickness",
                 "weight", "vitamin", "iron", "folate", "exercise", "diet",
             ]
-            is_pregnancy_related = any(term in msg_lower for term in pregnancy_terms)
-
-            if is_pregnancy_related:
+            if any(term in msg_lower for term in pregnancy_terms):
                 return random.choice([
                     "That's a great question! For the most accurate answer, I'd recommend discussing this with your healthcare provider at your next visit. They know your specific situation best.",
                     "Good question! While I can offer general support, your doctor is the best person to give you detailed medical guidance on this.",
-                    "I understand you're curious about that. Your healthcare provider can give you the most reliable answer for your specific situation. Is there anything else on your mind?",
+                    "I understand you're curious about that. Your healthcare provider can give you the most reliable answer. Is there anything else on your mind?",
                 ])
-            else:
-                return random.choice([
-                    "That's an interesting question! I'm mainly here to support you through your pregnancy journey. Is there anything about your pregnancy or wellbeing I can help with?",
-                    "I appreciate you chatting with me! My specialty is pregnancy support and emotional wellbeing. How are you feeling today?",
-                    "Good question! I'm best at helping with pregnancy-related topics and emotional support. How has your day been going? 💛",
-                ])
+            return random.choice([
+                "That's an interesting question! I'm mainly here to support you through your pregnancy journey. Is there anything about your pregnancy or wellbeing I can help with?",
+                "I appreciate you chatting with me! My specialty is pregnancy support and emotional wellbeing. How are you feeling today?",
+                "Good question! I'm best at helping with pregnancy-related topics and emotional support. How has your day been going? 💛",
+            ])
 
         return random.choice([
             "Thank you for sharing that with me. How are you feeling about things overall?",

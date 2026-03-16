@@ -42,6 +42,10 @@ matplotlib==3.8.3
 seaborn==0.13.2
 shap==0.49.1
 
+# LLM / Companion AI
+google-genai>=1.0.0
+groq>=1.0.0
+
 # Utilities
 python-dotenv==1.0.1
 httpx==0.26.0

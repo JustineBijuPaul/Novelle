@@ -23,7 +23,7 @@ class User(Base):
     password_hash = Column(String(255), nullable=False)
     full_name = Column(String(255), nullable=False)
     phone = Column(String(20), nullable=True)
-    role = Column(SAEnum(UserRole), default=UserRole.pregnant_user, nullable=False)
+    role = Column(SAEnum(UserRole, name="user_role", create_constraint=False), default=UserRole.pregnant_user, nullable=False)
     is_active = Column(Boolean, default=True)
     is_verified = Column(Boolean, default=False)
     avatar_url = Column(String(512), nullable=True)
