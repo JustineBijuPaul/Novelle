@@ -121,7 +121,7 @@ ON CONFLICT (email) DO NOTHING;
 INSERT INTO users (email, password_hash, full_name, phone, role, is_active, is_verified, city, state, country)
 VALUES (
     'dr.anita@novelle.app',
-    '$2b$12$EixZaYVK1fsbw1ZfbX3OXePaWxn96p36WQoeG6Lruj3vjPGga31lW',
+    '$2b$12$RPND8FgOZbx.57x5JEIhsOT3RJjWNKtSO99JfWyC95/FyVQNT8qGa',  -- "TestUser@123"
     'Dr. Anita Krishnamurthy',
     '+91-8765432100',
     'doctor',

@@ -79,6 +79,7 @@ from app.api.routes.mental_health import router as mental_router
 from app.api.routes.risk import router as risk_router
 from app.api.routes.features import router as features_router
 from app.api.routes.doctor import router as doctor_router
+from app.api.routes.admin import router as admin_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -87,6 +88,7 @@ app.include_router(mental_router, prefix="/api")
 app.include_router(risk_router, prefix="/api")
 app.include_router(features_router, prefix="/api")
 app.include_router(doctor_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 
 # ── Root & Health Check ──────────────────────────────

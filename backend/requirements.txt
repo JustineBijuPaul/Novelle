@@ -27,9 +27,15 @@ numpy==1.26.4
 joblib==1.3.2
 imbalanced-learn==0.14.1
 
-# NLP
+# Synthetic Data (SDV)
+sdv>=1.10.0
+
+# NLP — DistilBERT + VADER + GoEmotions
 vaderSentiment==3.3.2
 nltk==3.8.1
+transformers>=4.40.0
+torch>=2.2.0
+sentencepiece>=0.2.0
 
 # Visualization & Explainability
 matplotlib==3.8.3
@@ -39,4 +45,5 @@ shap==0.49.1
 # Utilities
 python-dotenv==1.0.1
 httpx==0.26.0
-bson==0.5.10
+# NOTE: Do NOT install standalone 'bson' — pymongo bundles its own bson module.
+# Installing both causes ImportError: cannot import name '_get_object_size'.

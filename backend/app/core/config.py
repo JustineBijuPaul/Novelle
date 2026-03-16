@@ -49,6 +49,7 @@ class Settings(BaseSettings):
 
     # ── External APIs (optional) ─────────────────────
     OPENAI_API_KEY: str = ""
+    GEMINI_API_KEY: str = ""
     GOOGLE_MAPS_API_KEY: str = ""
 
     # ── Email (optional) ─────────────────────────────

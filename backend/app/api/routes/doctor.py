@@ -1,11 +1,11 @@
-"""Doctor routes — dashboard, patient summary, escalation management."""
+"""Doctor routes — dashboard, patient summary, escalation management, AI predictions."""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timezone, timedelta, date
 from app.core.database import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.models.escalation import Escalation
 from app.models.risk import RiskScore
 from app.models.health import HealthLog
@@ -22,6 +22,57 @@ async def get_dashboard(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    # Get all pregnant/postpartum users as patients
+    patient_roles = [UserRole.pregnant_user.value, UserRole.postpartum_user.value]
+    patients_result = await db.execute(
+        select(User).where(User.role.in_(patient_roles), User.is_active == True)
+    )
+    patient_users = patients_result.scalars().all()
+
+    patients = []
+    for p in patient_users:
+        prof_result = await db.execute(
+            select(PregnancyProfile).where(PregnancyProfile.user_id == p.id)
+        )
+        profile = prof_result.scalar_one_or_none()
+
+        risk_result = await db.execute(
+            select(RiskScore)
+            .where(RiskScore.user_id == p.id)
+            .order_by(desc(RiskScore.scored_at))
+            .limit(1)
+        )
+        latest_risk = risk_result.scalars().first()
+
+        patients.append({
+            "user_id": p.id,
+            "name": p.full_name,
+            "email": p.email,
+            "phone": p.phone,
+            "city": p.city,
+            "pregnancy_week": profile.pregnancy_week if profile else None,
+            "trimester": profile.trimester if profile else None,
+            "age": profile.age if profile else None,
+            "latest_risk": {
+                "mental_risk_level": latest_risk.mental_risk_level if latest_risk else None,
+                "physical_risk_level": latest_risk.physical_risk_level if latest_risk else None,
+                "fetal_risk_level": latest_risk.fetal_risk_level if latest_risk else None,
+                "crisis_flag": latest_risk.crisis_flag if latest_risk else "SAFE",
+                "depression_risk": latest_risk.depression_risk if latest_risk else None,
+                "anxiety_risk": latest_risk.anxiety_risk if latest_risk else None,
+                "hypertension_risk": latest_risk.hypertension_risk if latest_risk else None,
+                "diabetes_risk": latest_risk.diabetes_risk if latest_risk else None,
+                "anemia_risk": latest_risk.anemia_risk if latest_risk else None,
+                "preterm_risk": latest_risk.preterm_risk if latest_risk else None,
+                "low_birth_weight_risk": latest_risk.low_birth_weight_risk if latest_risk else None,
+                "growth_abnormality_risk": latest_risk.growth_abnormality_risk if latest_risk else None,
+                "mental_confidence": latest_risk.mental_confidence if latest_risk else None,
+                "physical_confidence": latest_risk.physical_confidence if latest_risk else None,
+                "fetal_confidence": latest_risk.fetal_confidence if latest_risk else None,
+                "scored_at": str(latest_risk.scored_at) if latest_risk else None,
+            } if latest_risk else None,
+        })
+
     # Get pending escalations
     result = await db.execute(
         select(Escalation)
@@ -46,14 +97,199 @@ async def get_dashboard(
     resolved = resolved_result.scalar() or 0
 
     return {
+        "patients": patients,
         "escalations": [EscalationResponse.model_validate(e) for e in escalations],
         "stats": {
+            "total_patients": len(patients),
+            "high_risk": len([p for p in patients if p.get("latest_risk") and (
+                p["latest_risk"]["mental_risk_level"] == "HIGH"
+                or p["latest_risk"]["physical_risk_level"] == "HIGH"
+                or p["latest_risk"]["fetal_risk_level"] == "HIGH"
+            )]),
             "total_escalations": total,
             "pending": pending,
             "resolved": resolved,
-            "acknowledged": total - pending - resolved,
         },
     }
+
+
+@router.get("/patient/{patient_id}/predictions")
+async def get_patient_ai_predictions(
+    patient_id: int,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get detailed AI predictions for a specific patient."""
+    prof_result = await db.execute(
+        select(PregnancyProfile).where(PregnancyProfile.user_id == patient_id)
+    )
+    profile = prof_result.scalar_one_or_none()
+
+    risk_result = await db.execute(
+        select(RiskScore)
+        .where(RiskScore.user_id == patient_id)
+        .order_by(desc(RiskScore.scored_at))
+        .limit(1)
+    )
+    risk = risk_result.scalars().first()
+
+    since = date.today() - timedelta(days=7)
+    logs_result = await db.execute(
+        select(HealthLog)
+        .where(HealthLog.user_id == patient_id, HealthLog.log_date >= since)
+        .order_by(desc(HealthLog.log_date))
+    )
+    logs = logs_result.scalars().all()
+
+    mental_result = await db.execute(
+        select(MentalHealthAssessment)
+        .where(MentalHealthAssessment.user_id == patient_id)
+        .order_by(desc(MentalHealthAssessment.assessment_date))
+        .limit(7)
+    )
+    mental = mental_result.scalars().all()
+
+    risk_history_result = await db.execute(
+        select(RiskScore)
+        .where(RiskScore.user_id == patient_id)
+        .order_by(desc(RiskScore.scored_at))
+        .limit(10)
+    )
+    risk_history = risk_history_result.scalars().all()
+
+    fetal_predictions = None
+    physical_predictions = None
+    mental_predictions = None
+
+    if risk:
+        fetal_predictions = {
+            "overall_risk": risk.fetal_risk_level,
+            "confidence": risk.fetal_confidence,
+            "preterm_risk": risk.preterm_risk,
+            "low_birth_weight_risk": risk.low_birth_weight_risk,
+            "growth_abnormality_risk": risk.growth_abnormality_risk,
+            "missed_care_risk": risk.missed_care_risk,
+            "recommendations": _get_fetal_recommendations(risk),
+        }
+        physical_predictions = {
+            "overall_risk": risk.physical_risk_level,
+            "confidence": risk.physical_confidence,
+            "hypertension_risk": risk.hypertension_risk,
+            "diabetes_risk": risk.diabetes_risk,
+            "anemia_risk": risk.anemia_risk,
+            "infection_risk": risk.infection_risk,
+            "nutrition_risk": risk.nutrition_risk,
+            "recommendations": _get_physical_recommendations(risk),
+        }
+        mental_predictions = {
+            "overall_risk": risk.mental_risk_level,
+            "confidence": risk.mental_confidence,
+            "depression_risk": risk.depression_risk,
+            "anxiety_risk": risk.anxiety_risk,
+            "isolation_detected": risk.isolation_detected,
+            "postpartum_risk": risk.postpartum_risk,
+            "crisis_flag": risk.crisis_flag,
+            "recommendations": _get_mental_recommendations(risk),
+        }
+
+    return {
+        "patient_id": patient_id,
+        "profile": {
+            "age": profile.age if profile else None,
+            "pregnancy_week": profile.pregnancy_week if profile else None,
+            "trimester": profile.trimester if profile else None,
+            "bmi": profile.bmi if profile else None,
+            "hemoglobin": profile.hemoglobin_level if profile else None,
+            "gestational_diabetes": profile.gestational_diabetes if profile else None,
+            "chronic_hypertension": profile.chronic_hypertension if profile else None,
+            "past_complications": profile.past_complications if profile else [],
+        } if profile else None,
+        "fetal_predictions": fetal_predictions,
+        "physical_predictions": physical_predictions,
+        "mental_predictions": mental_predictions,
+        "recent_vitals": [
+            {
+                "date": str(l.log_date),
+                "bp": f"{l.bp_systolic}/{l.bp_diastolic}" if l.bp_systolic else None,
+                "sugar_fasting": l.blood_sugar_fasting,
+                "weight": l.weight_kg,
+                "fetal_movements": l.fetal_movement_count,
+            }
+            for l in logs
+        ],
+        "mental_health_history": [
+            {
+                "date": str(m.assessment_date),
+                "phq9": m.phq9_score,
+                "gad7": m.gad7_score,
+                "mood": m.mood_score,
+                "stress": m.stress_level,
+            }
+            for m in mental
+        ],
+        "risk_trend": [
+            {
+                "scored_at": str(r.scored_at),
+                "mental": r.mental_risk_level,
+                "physical": r.physical_risk_level,
+                "fetal": r.fetal_risk_level,
+            }
+            for r in risk_history
+        ],
+    }
+
+
+def _get_fetal_recommendations(risk: RiskScore) -> list[str]:
+    recs = []
+    if risk.fetal_risk_level == "HIGH":
+        recs.append("Fetal health indicators need urgent attention. Recommend immediate ultrasound and NST.")
+    elif risk.fetal_risk_level == "MEDIUM":
+        recs.append("Monitor fetal movements closely. Consider scheduling an additional growth scan.")
+    if risk.preterm_risk in ("HIGH", "MEDIUM"):
+        recs.append("Preterm risk detected. Assess cervical length and consider progesterone therapy if indicated.")
+    if risk.low_birth_weight_risk in ("HIGH", "MEDIUM"):
+        recs.append("Low birth weight risk present. Review nutritional intake and growth trajectory.")
+    if risk.growth_abnormality_risk in ("HIGH", "MEDIUM"):
+        recs.append("Growth abnormality risk flagged. Serial growth scans recommended every 2 weeks.")
+    if not recs:
+        recs.append("Fetal health indicators are within normal range. Continue routine monitoring.")
+    return recs
+
+
+def _get_physical_recommendations(risk: RiskScore) -> list[str]:
+    recs = []
+    if risk.physical_risk_level == "HIGH":
+        recs.append("Physical health at high risk. Comprehensive review of vitals and labs recommended.")
+    elif risk.physical_risk_level == "MEDIUM":
+        recs.append("Moderate physical risk. Increase monitoring frequency for BP and blood sugar.")
+    if risk.hypertension_risk in ("HIGH", "MEDIUM"):
+        recs.append("Hypertension risk elevated. Monitor BP twice daily. Consider antihypertensive if sustained.")
+    if risk.diabetes_risk in ("HIGH", "MEDIUM"):
+        recs.append("Diabetes risk detected. Review glucose tolerance and consider dietary counseling.")
+    if risk.anemia_risk in ("HIGH", "MEDIUM"):
+        recs.append("Anemia risk present. Check ferritin levels and consider iron supplementation.")
+    if not recs:
+        recs.append("Physical health indicators within normal limits. Continue routine check-ups.")
+    return recs
+
+
+def _get_mental_recommendations(risk: RiskScore) -> list[str]:
+    recs = []
+    if risk.mental_risk_level == "HIGH":
+        recs.append("High mental health risk. Recommend urgent psychiatric/psychological consultation.")
+    elif risk.mental_risk_level == "MEDIUM":
+        recs.append("Moderate mental health concerns. Consider supportive counseling referral.")
+    if risk.depression_risk in ("HIGH", "MEDIUM"):
+        recs.append("Depression indicators elevated. Screen with PHQ-9 and assess for treatment options.")
+    if risk.anxiety_risk in ("HIGH", "MEDIUM"):
+        recs.append("Anxiety indicators present. GAD-7 follow-up and relaxation techniques recommended.")
+    if risk.isolation_detected:
+        recs.append("Social isolation detected. Encourage support group participation and family involvement.")
+    if risk.crisis_flag == "URGENT":
+        recs.append("CRISIS FLAG: Patient may be in acute distress. Immediate intervention recommended.")
+    if not recs:
+        recs.append("Mental health indicators are stable. Continue supportive check-ins.")
+    return recs
 
 
 @router.get("/patient/{patient_id}/summary")

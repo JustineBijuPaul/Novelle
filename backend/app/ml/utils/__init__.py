@@ -393,15 +393,20 @@ def predict_fetal_risk(features: dict) -> Optional[dict]:
 
 def models_available() -> dict:
     """Check which ML models are available."""
-    nlp_ok = (
-        (MODEL_DIR / "nlp_sentiment_model.joblib").exists() and
-        (MODEL_DIR / "nlp_emotion_model.joblib").exists()
-    )
+    transformers_ok = False
+    try:
+        import transformers  # noqa: F401
+        transformers_ok = True
+    except ImportError:
+        pass
+
     return {
         "mental_health": (MODEL_DIR / "mental_health_xgb.joblib").exists(),
         "physical_health": (MODEL_DIR / "physical_health_ensemble.joblib").exists(),
         "fetal_health": (MODEL_DIR / "fetal_health_lgbm.joblib").exists(),
-        "nlp_sentiment": nlp_ok,
+        "nlp_distilbert": transformers_ok,
+        "nlp_goemotions": transformers_ok,
+        "nlp_vader": True,
     }
 
 

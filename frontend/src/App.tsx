@@ -14,6 +14,7 @@ import BabyGrowthPage from './pages/BabyGrowthPage';
 import HospitalsPage from './pages/HospitalsPage';
 import RemindersPage from './pages/RemindersPage';
 import DoctorDashboardPage from './pages/DoctorDashboardPage';
+import AdminDashboardPage from './pages/AdminDashboardPage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -48,6 +49,7 @@ export default function App() {
         <Route path="hospitals" element={<HospitalsPage />} />
         <Route path="reminders" element={<RemindersPage />} />
         <Route path="doctor" element={<DoctorDashboardPage />} />
+        <Route path="admin" element={<AdminDashboardPage />} />
       </Route>
 
       {/* Catch-all */}

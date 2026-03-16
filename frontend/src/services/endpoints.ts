@@ -152,6 +152,59 @@ export const doctorService = {
   getPatientSummary: (userId: number) =>
     api.get(`/doctor/patient/${userId}/summary`),
 
+  getPatientPredictions: (userId: number) =>
+    api.get(`/doctor/patient/${userId}/predictions`),
+
   updateEscalation: (escalationId: number, data: { status: string; doctor_notes?: string }) =>
     api.put(`/doctor/escalation/${escalationId}`, data),
+};
+
+// ── Letters to Baby ────────────────────────────────
+export const letterService = {
+  create: (data: Record<string, unknown>) =>
+    api.post('/letters/', data),
+
+  list: (skip = 0, limit = 20) =>
+    api.get(`/letters/list?skip=${skip}&limit=${limit}`),
+
+  delete: (id: string) =>
+    api.delete(`/letters/${id}`),
+};
+
+// ── Admin ──────────────────────────────────────────
+export const adminService = {
+  getStats: () => api.get('/admin/stats'),
+
+  listUsers: (params?: { skip?: number; limit?: number; role?: string; search?: string }) =>
+    api.get('/admin/users', { params }),
+
+  updateUser: (userId: number, data: Record<string, unknown>) =>
+    api.put(`/admin/users/${userId}`, data),
+
+  deactivateUser: (userId: number) =>
+    api.delete(`/admin/users/${userId}`),
+
+  listHospitals: (params?: { skip?: number; limit?: number; search?: string }) =>
+    api.get('/admin/hospitals', { params }),
+
+  createHospital: (data: Record<string, unknown>) =>
+    api.post('/admin/hospitals', data),
+
+  updateHospital: (hospitalId: number, data: Record<string, unknown>) =>
+    api.put(`/admin/hospitals/${hospitalId}`, data),
+
+  deleteHospital: (hospitalId: number) =>
+    api.delete(`/admin/hospitals/${hospitalId}`),
+
+  listDoctors: (params?: { skip?: number; limit?: number; search?: string }) =>
+    api.get('/admin/doctors', { params }),
+
+  createDoctor: (data: Record<string, unknown>) =>
+    api.post('/admin/doctors', data),
+
+  updateDoctor: (doctorId: number, data: Record<string, unknown>) =>
+    api.put(`/admin/doctors/${doctorId}`, data),
+
+  deleteDoctor: (doctorId: number) =>
+    api.delete(`/admin/doctors/${doctorId}`),
 };

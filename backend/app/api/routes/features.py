@@ -122,6 +122,68 @@ async def get_sentiment_trend(
 
 
 # ═══════════════════════════════════════════════════
+#  LETTER TO BABY
+# ═══════════════════════════════════════════════════
+
+@router.post("/letters/", status_code=201)
+async def create_letter(
+    data: JournalCreate,
+    user: User = Depends(_current_user),
+):
+    mongo = get_mongo_db()
+    text = data.content or data.text_content or ""
+    entry_date = data.entry_date or str(date.today())
+
+    doc = {
+        "user_id": user.id,
+        "entry_date": entry_date,
+        "title": data.title or "Letter to My Baby",
+        "content": text,
+        "mood": data.mood,
+        "tags": data.tags or [],
+        "type": "letter_to_baby",
+        "created_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    result = await mongo.baby_letters.insert_one(doc)
+    doc["id"] = str(result.inserted_id)
+    return doc
+
+
+@router.get("/letters/list")
+async def list_letters(
+    skip: int = Query(0, ge=0),
+    limit: int = Query(20, ge=1, le=100),
+    user: User = Depends(_current_user),
+):
+    mongo = get_mongo_db()
+    cursor = mongo.baby_letters.find(
+        {"user_id": user.id}
+    ).sort("created_at", -1).skip(skip).limit(limit)
+
+    letters = []
+    async for doc in cursor:
+        doc["id"] = str(doc.pop("_id"))
+        letters.append(doc)
+    return letters
+
+
+@router.delete("/letters/{letter_id}")
+async def delete_letter(
+    letter_id: str,
+    user: User = Depends(_current_user),
+):
+    from bson import ObjectId
+    mongo = get_mongo_db()
+    result = await mongo.baby_letters.delete_one(
+        {"_id": ObjectId(letter_id), "user_id": user.id}
+    )
+    if result.deleted_count == 0:
+        raise HTTPException(status_code=404, detail="Letter not found")
+    return {"status": "deleted"}
+
+
+# ═══════════════════════════════════════════════════
 #  AI COMPANION
 # ═══════════════════════════════════════════════════
 

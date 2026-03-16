@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Heart, Brain, Activity, MessageCircle, BookOpen,
   MapPin, Bell, User, LogOut, Menu, X, Baby, AlertTriangle,
-  Stethoscope, ChevronRight,
+  Stethoscope, ChevronRight, Shield, Users, Building2,
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAppStore } from '../../stores/appStore';
@@ -22,7 +22,12 @@ const userNavItems = [
 ];
 
 const doctorNavItems = [
-  { path: '/doctor/dashboard', label: 'Dashboard', icon: Stethoscope },
+  { path: '/doctor', label: 'Dashboard', icon: Stethoscope },
+];
+
+const adminNavItems = [
+  { path: '/admin', label: 'Admin Dashboard', icon: Shield },
+  { path: '/doctor', label: 'Doctor View', icon: Stethoscope },
 ];
 
 export default function Sidebar() {
@@ -31,7 +36,7 @@ export default function Sidebar() {
   const { user, logout } = useAuthStore();
   const { sidebarOpen, toggleSidebar } = useAppStore();
 
-  const navItems = user?.role === 'doctor' ? doctorNavItems : userNavItems;
+  const navItems = user?.role === 'platform_admin' ? adminNavItems : user?.role === 'doctor' ? doctorNavItems : userNavItems;
 
   const handleLogout = () => {
     logout();
