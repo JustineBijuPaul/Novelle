@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { Baby, ChevronLeft, ChevronRight, AlertTriangle, Ruler, Weight, Eye, Heart } from 'lucide-react';
 import { useAppStore } from '../stores/appStore';
@@ -8,6 +8,14 @@ export default function BabyGrowthPage() {
   const { profile } = useAppStore();
   const currentWeek = profile?.pregnancy_week || 12;
   const [selectedWeek, setSelectedWeek] = useState(currentWeek);
+  const [availableVideos, setAvailableVideos] = useState<number[]>([]);
+
+  useEffect(() => {
+    fetch('/api/videos/list')
+      .then(res => res.json())
+      .then(data => setAvailableVideos(data))
+      .catch(() => setAvailableVideos([]));
+  }, []);
 
   const milestone = getMilestoneForWeek(selectedWeek);
 
@@ -65,6 +73,35 @@ export default function BabyGrowthPage() {
               </div>
             </div>
           </motion.div>
+          
+          {/* Fetal Development Video */}
+          {availableVideos.includes(selectedWeek) && (
+            <motion.div key={`video-${selectedWeek}`}
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="card overflow-hidden p-0 border-none shadow-lg ring-1 ring-black/5"
+            >
+              <div className="bg-black aspect-video flex items-center justify-center relative">
+                <video 
+                  key={`vid-${selectedWeek}`}
+                  controls 
+                  className="w-full h-full"
+                >
+                  <source src={`/api/videos/week${selectedWeek}.mp4`} type="video/mp4" />
+                  Your browser does not support the video tag.
+                </video>
+              </div>
+              <div className="p-4 bg-white">
+                <h3 className="font-semibold text-gray-800 text-sm flex items-center gap-2">
+                  <span className="w-2 h-2 rounded-full bg-primary-500 animate-pulse" />
+                  Development Visualization: Week {selectedWeek}
+                </h3>
+                <p className="text-[11px] text-gray-500 mt-1">
+                  Experience the incredible transformation happening inside you this week.
+                </p>
+              </div>
+            </motion.div>
+          )}
 
           {/* Developments */}
           <motion.div key={`dev-${selectedWeek}`}

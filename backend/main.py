@@ -5,6 +5,8 @@ AI-Powered Maternal Health Risk Support Platform
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+import os
 from contextlib import asynccontextmanager
 from app.core.config import settings
 from app.core.database import init_db, init_mongo, close_mongo, init_redis, close_redis
@@ -89,6 +91,31 @@ app.include_router(risk_router, prefix="/api")
 app.include_router(features_router, prefix="/api")
 app.include_router(doctor_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+
+@app.get("/api/videos/list")
+async def list_available_videos():
+    """List available video weeks."""
+    video_dir = "/home/linxcapture/Desktop/projects/pregency-friend/video"
+    if not os.path.exists(video_dir):
+        return []
+    try:
+        files = os.listdir(video_dir)
+        weeks = []
+        for f in files:
+            if f.startswith("week") and f.endswith(".mp4"):
+                try:
+                    week_num = int(f.replace("week", "").replace(".mp4", ""))
+                    weeks.append(week_num)
+                except ValueError:
+                    continue
+        return sorted(weeks)
+    except Exception:
+        return []
+
+# ── Serve Fetal Videos ──────────────────────────────
+video_dir = "/home/linxcapture/Desktop/projects/pregency-friend/video"
+if os.path.exists(video_dir):
+    app.mount("/api/videos", StaticFiles(directory=video_dir), name="videos")
 
 
 # ── Root & Health Check ──────────────────────────────
