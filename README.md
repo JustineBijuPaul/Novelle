@@ -111,7 +111,7 @@ If you prefer running just the databases via Docker while running the frontend/b
 docker compose up -d mongodb redis
 
 #Starting the existing containers
-docker start novelle-redis
+docker start novelle-redis novelle-mongodb 
 ```
 
 ### Quick Start with Docker
@@ -169,6 +169,8 @@ npm install
 npm run dev
 # Opens at http://localhost:3000
 ```
+
+### Test Credentials
 
 ### Test Credentials
 
