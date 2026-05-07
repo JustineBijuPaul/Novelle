@@ -3,7 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Heart, Brain, Activity, MessageCircle, BookOpen,
   MapPin, Bell, User, LogOut, Menu, X, Baby, AlertTriangle,
-  Stethoscope, ChevronRight, Shield, Users, Building2, ShieldAlert,
+  Stethoscope, ChevronRight, Shield, Users, Building2, ShieldAlert, CreditCard,
   Calendar, Video, Zap, LayoutDashboard, UserSquare2, BarChart3,
   FileBarChart, MessagesSquare, Sparkles, Settings as SettingsIcon,
   BedDouble, GraduationCap
@@ -49,8 +49,29 @@ const hospitalAdminNavItems = [
 ];
 
 const adminNavItems = [
-  { path: '/admin', label: 'Admin Dashboard', icon: Shield },
-  { path: '/doctor/patients', label: 'Doctor View', icon: Stethoscope },
+  // Platform Overview
+  { path: '/admin', label: 'Overview', icon: LayoutDashboard, category: 'Platform' },
+  { path: '/admin/organizations', label: 'Organizations', icon: Building2, category: 'Platform' },
+  { path: '/admin/hospitals', label: 'Hospitals', icon: MapPin, category: 'Platform' },
+  { path: '/admin/users', label: 'Users & Roles', icon: Users, category: 'Platform' },
+  
+  // Intelligence & Health
+  { path: '/admin/ai-control', label: 'AI Control Center', icon: Sparkles, category: 'Intelligence' },
+  { path: '/admin/analytics', label: 'Platform Analytics', icon: BarChart3, category: 'Intelligence' },
+  { path: '/admin/escalations', label: 'Escalation Monitor', icon: ShieldAlert, category: 'Intelligence' },
+  
+  // Operations
+  { path: '/admin/billing', label: 'Billing & Subscriptions', icon: CreditCard, category: 'Operations' },
+  { path: '/admin/infrastructure', label: 'Infrastructure', icon: Zap, category: 'Operations' },
+  { path: '/admin/security', label: 'Security & Compliance', icon: Shield, category: 'Operations' },
+  
+  // Communication & Logs
+  { path: '/admin/communication', label: 'Communication Center', icon: MessagesSquare, category: 'System' },
+  { path: '/admin/audit-logs', label: 'Audit Logs', icon: FileBarChart, category: 'System' },
+  { path: '/admin/integrations', label: 'Integrations', icon: SettingsIcon, category: 'System' },
+  { path: '/admin/support', label: 'Support & Tickets', icon: MessageCircle, category: 'System' },
+  { path: '/admin/reports', label: 'Reports', icon: FileBarChart, category: 'System' },
+  { path: '/admin/settings', label: 'Settings', icon: SettingsIcon, category: 'System' },
 ];
 
 export default function Sidebar() {
@@ -104,7 +125,12 @@ export default function Sidebar() {
         {/* Logo */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
           <Link 
-            to={user?.role === 'doctor' || user?.role === 'platform_admin' ? '/doctor/patients' : '/dashboard'} 
+            to={
+              user?.role === 'platform_admin' ? '/admin' :
+              user?.role === 'doctor' ? '/doctor/patients' : 
+              user?.role === 'hospital_admin' ? '/hospital-admin' :
+              '/dashboard'
+            } 
             className="flex items-center gap-2.5"
           >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center">
@@ -120,27 +146,42 @@ export default function Sidebar() {
         {/* Nav items */}
         <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto h-[calc(100%-140px)] scrollbar-hide">
           <div className="mb-4">
-            <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Navigation</p>
-            {navItems.map((item) => {
-            const isActive = location.pathname === item.path;
-            return (
-              <Link
-                key={item.path}
-                to={item.path}
-                onClick={() => sidebarOpen && toggleSidebar()}
-                className={cn(
-                  'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
-                  isActive
-                    ? 'bg-primary-50 text-primary-700'
-                    : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-                )}
-              >
-                <item.icon className={cn('w-5 h-5', isActive ? 'text-primary-500' : 'text-gray-400')} />
-                {item.label}
-                {isActive && <ChevronRight className="w-4 h-4 ml-auto text-primary-400" />}
-              </Link>
-            );
-          })}
+            {Object.entries(
+              navItems.reduce((acc: any, item: any) => {
+                const cat = item.category || 'Navigation';
+                if (!acc[cat]) acc[cat] = [];
+                acc[cat].push(item);
+                return acc;
+              }, {})
+            ).map(([category, items]: [string, any]) => (
+              <div key={category} className="mb-6 last:mb-0">
+                <p className="px-3 text-[10px] font-black text-gray-400 uppercase tracking-widest mb-3 opacity-70">
+                  {category}
+                </p>
+                <div className="space-y-1">
+                  {items.map((item: any) => {
+                    const isActive = location.pathname === item.path;
+                    return (
+                      <Link
+                        key={item.path}
+                        to={item.path}
+                        onClick={() => sidebarOpen && toggleSidebar()}
+                        className={cn(
+                          'flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200',
+                          isActive
+                            ? 'bg-primary-50 text-primary-700 shadow-sm'
+                            : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+                        )}
+                      >
+                        <item.icon className={cn('w-5 h-5', isActive ? 'text-primary-500' : 'text-gray-400')} />
+                        <span className="flex-1">{item.label}</span>
+                        {isActive && <div className="w-1.5 h-1.5 rounded-full bg-primary-500" />}
+                      </Link>
+                    );
+                  })}
+                </div>
+              </div>
+            ))}
           </div>
 
           {/* Doctor-specific Widgets */}

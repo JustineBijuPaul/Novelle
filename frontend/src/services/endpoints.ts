@@ -282,3 +282,30 @@ export const hospitalAdminService = {
   getSystemAuditLogs: () => 
     api.get('/hospital-admin/settings/audit-logs'),
 };
+
+export const platformAdminService = {
+  getOverview: () => 
+    api.get('/platform-admin/overview'),
+  listOrganizations: () => 
+    api.get('/platform-admin/organizations'),
+  getAIControl: () => 
+    api.get('/platform-admin/ai/control'),
+  getInfrastructure: () => 
+    api.get('/platform-admin/infrastructure'),
+  listHospitals: () => 
+    api.get('/platform-admin/hospitals'),
+  createHospital: (data: any) => 
+    api.post('/platform-admin/hospitals', data),
+  getRegionalStats: () => 
+    api.get('/platform-admin/hospitals/regional'),
+  listGlobalUsers: () => 
+    api.get('/platform-admin/users'),
+  provisionUser: (data: any) => 
+    api.post('/platform-admin/users', data),
+  updateUser: (userId: number, data: any) => 
+    api.patch(`/platform-admin/users/${userId}`, data),
+  updateUserStatus: (userId: number, status: string) => 
+    api.patch(`/platform-admin/users/${userId}/status`, { status }),
+  deleteUser: (userId: number) => 
+    api.delete(`/platform-admin/users/${userId}`),
+};

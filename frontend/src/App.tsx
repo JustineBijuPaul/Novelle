@@ -37,7 +37,8 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   if (isAuthenticated) {
     let target = '/dashboard';
-    if (user?.role === 'doctor' || user?.role === 'platform_admin') target = '/doctor/patients';
+    if (user?.role === 'doctor') target = '/doctor/patients';
+    else if (user?.role === 'platform_admin') target = '/admin';
     else if (user?.role === 'hospital_admin') target = '/hospital-admin';
     return <Navigate to={target} replace />;
   }
@@ -60,7 +61,9 @@ export default function App() {
         <Route path="dashboard" element={
           useAuthStore.getState().user?.role === 'hospital_admin' 
             ? <Navigate to="/hospital-admin" replace />
-            : useAuthStore.getState().user?.role === 'doctor' || useAuthStore.getState().user?.role === 'platform_admin' 
+            : useAuthStore.getState().user?.role === 'platform_admin' 
+            ? <Navigate to="/admin" replace /> 
+            : useAuthStore.getState().user?.role === 'doctor'
             ? <Navigate to="/doctor/patients" replace /> 
             : <DashboardPage />
         } />
@@ -76,6 +79,21 @@ export default function App() {
         <Route path="doctor/escalations" element={<DoctorDashboardPage />} />
         <Route path="doctor" element={<Navigate to="/doctor/patients" replace />} />
         <Route path="admin" element={<AdminDashboardPage />} />
+        <Route path="admin/organizations" element={<AdminDashboardPage />} />
+        <Route path="admin/hospitals" element={<AdminDashboardPage />} />
+        <Route path="admin/users" element={<AdminDashboardPage />} />
+        <Route path="admin/ai-control" element={<AdminDashboardPage />} />
+        <Route path="admin/analytics" element={<AdminDashboardPage />} />
+        <Route path="admin/escalations" element={<AdminDashboardPage />} />
+        <Route path="admin/billing" element={<AdminDashboardPage />} />
+        <Route path="admin/infrastructure" element={<AdminDashboardPage />} />
+        <Route path="admin/security" element={<AdminDashboardPage />} />
+        <Route path="admin/communication" element={<AdminDashboardPage />} />
+        <Route path="admin/audit-logs" element={<AdminDashboardPage />} />
+        <Route path="admin/integrations" element={<AdminDashboardPage />} />
+        <Route path="admin/support" element={<AdminDashboardPage />} />
+        <Route path="admin/reports" element={<AdminDashboardPage />} />
+        <Route path="admin/settings" element={<AdminDashboardPage />} />
         
         {/* Hospital Admin Routes */}
         <Route path="hospital-admin" element={<HospitalAdminDashboard />} />

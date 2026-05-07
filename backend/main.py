@@ -82,6 +82,7 @@ from app.api.routes.features import router as features_router
 from app.api.routes.doctor import router as doctor_router
 from app.api.routes.admin import router as admin_router
 from app.api.routes.hospital_admin import router as hospital_admin_router
+from app.api.routes.platform_admin import router as platform_admin_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -92,6 +93,7 @@ app.include_router(features_router, prefix="/api")
 app.include_router(doctor_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(hospital_admin_router, prefix="/api/hospital-admin")
+app.include_router(platform_admin_router, prefix="/api/platform-admin")
 
 @app.get("/api/videos/list")
 async def list_available_videos():
