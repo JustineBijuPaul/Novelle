@@ -6,36 +6,51 @@ import type { Hospital } from '../types';
 
 export default function HospitalsPage() {
   const [hospitals, setHospitals] = useState<Hospital[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [searched, setSearched] = useState(false);
-  const [form, setForm] = useState({ lat: '', lng: '', radius: '20' });
+  const [loading, setLoading] = useState(true);
+  const [userLocation, setUserLocation] = useState<{ lat: number, lng: number } | null>(null);
+  const [radius, setRadius] = useState('50');
 
-  const searchHospitals = async () => {
-    if (!form.lat || !form.lng) return;
+  const fetchHospitals = async (lat?: number, lng?: number) => {
     setLoading(true);
-    setSearched(true);
     try {
-      const res = await hospitalService.findNearby(Number(form.lat), Number(form.lng), Number(form.radius));
+      const res = await hospitalService.findNearby(lat, lng, Number(radius));
       setHospitals(res.data);
-    } catch {
-      // handled
+    } catch (err) {
+      console.error('Failed to fetch hospitals', err);
     } finally {
       setLoading(false);
     }
   };
 
-  const useMyLocation = () => {
+  useEffect(() => {
+    // Initial fetch of all hospitals
+    fetchHospitals();
+
+    // Try to get location automatically
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
         pos => {
-          setForm(p => ({
-            ...p,
-            lat: pos.coords.latitude.toFixed(6),
-            lng: pos.coords.longitude.toFixed(6),
-          }));
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserLocation(loc);
+          fetchHospitals(loc.lat, loc.lng);
         },
         () => {
-          alert('Unable to get your location. Please enter coordinates manually.');
+          console.log('Location permission denied or unavailable');
+        }
+      );
+    }
+  }, []);
+
+  const handleManualLocation = () => {
+    if (navigator.geolocation) {
+      navigator.geolocation.getCurrentPosition(
+        pos => {
+          const loc = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+          setUserLocation(loc);
+          fetchHospitals(loc.lat, loc.lng);
+        },
+        () => {
+          alert('Unable to get your location. Please check your browser permissions.');
         }
       );
     }
@@ -53,36 +68,49 @@ export default function HospitalsPage() {
         Nearby Hospitals & Clinics
       </h2>
 
-      {/* Search */}
+      {/* Search & Status */}
       <div className="card">
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Latitude</label>
-            <input type="number" step="any" className="input-field" placeholder="28.6139"
-              value={form.lat}
-              onChange={e => setForm(p => ({ ...p, lat: e.target.value }))}
-            />
+        <div className="flex flex-col md:flex-row items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <div className={`p-2 rounded-full ${userLocation ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-400'}`}>
+              <Navigation className="w-5 h-5" />
+            </div>
+            <div>
+              <p className="text-sm font-medium text-gray-900">
+                {userLocation ? 'Location Active' : 'Location Not Set'}
+              </p>
+              <p className="text-xs text-gray-500">
+                {userLocation 
+                  ? `Showing hospitals within ${radius}km of you` 
+                  : 'Showing all available hospitals'}
+              </p>
+            </div>
           </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Longitude</label>
-            <input type="number" step="any" className="input-field" placeholder="77.2090"
-              value={form.lng}
-              onChange={e => setForm(p => ({ ...p, lng: e.target.value }))}
-            />
-          </div>
-          <div>
-            <label className="text-xs text-gray-500 mb-1 block">Radius (km)</label>
-            <input type="number" className="input-field" placeholder="20"
-              value={form.radius}
-              onChange={e => setForm(p => ({ ...p, radius: e.target.value }))}
-            />
-          </div>
-          <div className="flex items-end gap-2">
-            <button onClick={searchHospitals} className="btn-primary flex items-center gap-2 flex-1">
-              <Search className="w-4 h-4" /> Search
-            </button>
-            <button onClick={useMyLocation} className="btn-secondary p-3" title="Use my location">
-              <Navigation className="w-4 h-4" />
+
+          <div className="flex items-center gap-3 w-full md:w-auto">
+            <div className="flex-1 md:w-32">
+              <label className="text-[10px] uppercase tracking-wider text-gray-400 mb-1 block font-bold">Radius (km)</label>
+              <select 
+                className="input-field py-2"
+                value={radius}
+                onChange={e => {
+                  setRadius(e.target.value);
+                  fetchHospitals(userLocation?.lat, userLocation?.lng);
+                }}
+              >
+                <option value="10">10 km</option>
+                <option value="20">20 km</option>
+                <option value="50">50 km</option>
+                <option value="100">100 km</option>
+                <option value="5000">Worldwide</option>
+              </select>
+            </div>
+            <button 
+              onClick={handleManualLocation}
+              className="btn-primary flex items-center gap-2 mt-5 whitespace-nowrap"
+            >
+              <Navigation className="w-4 h-4" /> 
+              {userLocation ? 'Update Location' : 'Get My Location'}
             </button>
           </div>
         </div>
@@ -137,17 +165,11 @@ export default function HospitalsPage() {
             </motion.div>
           ))}
         </div>
-      ) : searched ? (
+      ) : (
         <div className="text-center py-16">
           <Building2 className="w-12 h-12 text-gray-200 mx-auto mb-4" />
           <p className="text-gray-500">No hospitals found in this area</p>
           <p className="text-sm text-gray-400 mt-1">Try increasing the search radius</p>
-        </div>
-      ) : (
-        <div className="text-center py-16">
-          <MapPin className="w-12 h-12 text-gray-200 mx-auto mb-4" />
-          <p className="text-gray-500">Enter your location to find nearby hospitals</p>
-          <p className="text-sm text-gray-400 mt-1">Use the GPS button for automatic detection</p>
         </div>
       )}
     </div>

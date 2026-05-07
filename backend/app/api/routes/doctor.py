@@ -11,7 +11,13 @@ from app.models.risk import RiskScore
 from app.models.health import HealthLog
 from app.models.mental import MentalHealthAssessment
 from app.models.profile import PregnancyProfile
+from app.models.clinical import ClinicalNote, Appointment, Medication
 from app.schemas.features import EscalationResponse, EscalationResolve
+from app.schemas.clinical import (
+    ClinicalNoteCreate, ClinicalNoteResponse,
+    AppointmentCreate, AppointmentResponse,
+    MedicationCreate, MedicationResponse
+)
 from app.api.routes.auth import _current_user
 
 router = APIRouter(prefix="/doctor", tags=["Doctor Portal"])
@@ -192,6 +198,22 @@ async def get_patient_ai_predictions(
             "recommendations": _get_mental_recommendations(risk),
         }
 
+    # Clinical data
+    notes_result = await db.execute(
+        select(ClinicalNote).where(ClinicalNote.patient_id == patient_id).order_by(desc(ClinicalNote.created_at))
+    )
+    notes = notes_result.scalars().all()
+
+    appointments_result = await db.execute(
+        select(Appointment).where(Appointment.patient_id == patient_id).order_by(Appointment.appointment_date)
+    )
+    appointments = appointments_result.scalars().all()
+
+    medications_result = await db.execute(
+        select(Medication).where(Medication.patient_id == patient_id, Medication.is_active == True)
+    )
+    medications = medications_result.scalars().all()
+
     return {
         "patient_id": patient_id,
         "profile": {
@@ -203,6 +225,7 @@ async def get_patient_ai_predictions(
             "gestational_diabetes": profile.gestational_diabetes if profile else None,
             "chronic_hypertension": profile.chronic_hypertension if profile else None,
             "past_complications": profile.past_complications if profile else [],
+            "due_date": str(profile.due_date) if profile and profile.due_date else None,
         } if profile else None,
         "fetal_predictions": fetal_predictions,
         "physical_predictions": physical_predictions,
@@ -210,7 +233,8 @@ async def get_patient_ai_predictions(
         "recent_vitals": [
             {
                 "date": str(l.log_date),
-                "bp": f"{l.bp_systolic}/{l.bp_diastolic}" if l.bp_systolic else None,
+                "bp_systolic": l.bp_systolic,
+                "bp_diastolic": l.bp_diastolic,
                 "sugar_fasting": l.blood_sugar_fasting,
                 "weight": l.weight_kg,
                 "fetal_movements": l.fetal_movement_count,
@@ -236,6 +260,10 @@ async def get_patient_ai_predictions(
             }
             for r in risk_history
         ],
+        "shap_analysis": risk.shap_features_json if risk else None,
+        "clinical_notes": [ClinicalNoteResponse.model_validate(n) for n in notes],
+        "appointments": [AppointmentResponse.model_validate(a) for a in appointments],
+        "medications": [MedicationResponse.model_validate(m) for m in medications],
     }
 
 
@@ -405,3 +433,66 @@ async def update_escalation(
     await db.commit()
     await db.refresh(esc)
     return EscalationResponse.model_validate(esc)
+
+@router.post("/patient/{patient_id}/notes", response_model=ClinicalNoteResponse)
+async def add_clinical_note(
+    patient_id: int,
+    data: ClinicalNoteCreate,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    note = ClinicalNote(
+        patient_id=patient_id,
+        doctor_id=user.id,
+        note_type=data.note_type,
+        content=data.content
+    )
+    db.add(note)
+    await db.commit()
+    await db.refresh(note)
+    return ClinicalNoteResponse.model_validate(note)
+
+
+@router.post("/patient/{patient_id}/appointments", response_model=AppointmentResponse)
+async def schedule_appointment(
+    patient_id: int,
+    data: AppointmentCreate,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    appo = Appointment(
+        patient_id=patient_id,
+        doctor_id=user.id,
+        appointment_date=data.appointment_date,
+        reason=data.reason,
+        appointment_type=data.appointment_type,
+        telemedicine_link=data.telemedicine_link
+    )
+    db.add(appo)
+    await db.commit()
+    await db.refresh(appo)
+    return AppointmentResponse.model_validate(appo)
+
+
+@router.post("/patient/{patient_id}/medications", response_model=MedicationResponse)
+async def prescribe_medication(
+    patient_id: int,
+    data: MedicationCreate,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    from datetime import date
+    med = Medication(
+        patient_id=patient_id,
+        doctor_id=user.id,
+        name=data.name,
+        dosage=data.dosage,
+        frequency=data.frequency,
+        instructions=data.instructions,
+        start_date=data.start_date or date.today(),
+        end_date=data.end_date
+    )
+    db.add(med)
+    await db.commit()
+    await db.refresh(med)
+    return MedicationResponse.model_validate(med)

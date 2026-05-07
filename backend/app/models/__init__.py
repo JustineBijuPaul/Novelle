@@ -9,6 +9,7 @@ from app.models.doctor import Doctor  # noqa: F401
 from app.models.hospital import Hospital  # noqa: F401
 from app.models.escalation import Escalation  # noqa: F401
 from app.models.reminder import Reminder  # noqa: F401
+from app.models.clinical import ClinicalNote, Appointment, Medication  # noqa: F401
 
 __all__ = [
     "User",
@@ -20,4 +21,7 @@ __all__ = [
     "Hospital",
     "Escalation",
     "Reminder",
+    "ClinicalNote",
+    "Appointment",
+    "Medication",
 ]

@@ -252,3 +252,57 @@ export interface FetalMilestone {
   developments: string[];
   tips: string[];
 }
+
+// ── Clinical Workflow ──────────────────────────────
+export interface ClinicalNote {
+  id: number;
+  patient_id: number;
+  doctor_id: number;
+  note_type: string;
+  content: string;
+  ai_summary?: string;
+  created_at: string;
+  updated_at?: string;
+}
+
+export interface Appointment {
+  id: number;
+  patient_id: number;
+  doctor_id: number;
+  appointment_date: string;
+  reason?: string;
+  status: string;
+  appointment_type: string;
+  telemedicine_link?: string;
+  created_at: string;
+}
+
+export interface Medication {
+  id: number;
+  patient_id: number;
+  doctor_id: number;
+  name: string;
+  dosage?: string;
+  frequency?: string;
+  instructions?: string;
+  start_date: string;
+  end_date?: string;
+  is_active: boolean;
+  adherence_data?: any;
+  created_at: string;
+}
+
+export interface PatientDashboardData {
+  patient_id: number;
+  profile: any;
+  fetal_predictions: any;
+  physical_predictions: any;
+  mental_predictions: any;
+  recent_vitals: any[];
+  mental_health_history: any[];
+  risk_trend: any[];
+  shap_analysis?: any;
+  clinical_notes: ClinicalNote[];
+  appointments: Appointment[];
+  medications: Medication[];
+}

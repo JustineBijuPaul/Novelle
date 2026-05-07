@@ -3,6 +3,7 @@ import type {
   TokenResponse, User, PregnancyProfile, HealthLog, HealthLogSummary,
   MentalAssessment, MoodTrend, RiskDashboard, RiskScore,
   JournalEntry, CompanionResponse, Hospital, Reminder, Escalation,
+  ClinicalNote, Appointment, Medication, PatientDashboardData
 } from '../types';
 
 // ── Auth ────────────────────────────────────────────
@@ -108,7 +109,7 @@ export const companionService = {
 
 // ── Hospital ────────────────────────────────────────
 export const hospitalService = {
-  findNearby: (lat: number, lng: number, radiusKm = 20) =>
+  findNearby: (lat?: number, lng?: number, radiusKm = 20) =>
     api.get<Hospital[]>('/hospitals/nearby', { params: { lat, lng, radius_km: radiusKm } }),
 };
 
@@ -157,6 +158,15 @@ export const doctorService = {
 
   updateEscalation: (escalationId: number, data: { status: string; doctor_notes?: string }) =>
     api.put(`/doctor/escalation/${escalationId}`, data),
+
+  addNote: (patientId: number, content: string, noteType = 'consultation') =>
+    api.post<ClinicalNote>(`/doctor/patient/${patientId}/notes`, { content, note_type: noteType }),
+
+  scheduleAppointment: (patientId: number, data: { appointment_date: string; reason?: string; appointment_type?: string; telemedicine_link?: string }) =>
+    api.post<Appointment>(`/doctor/patient/${patientId}/appointments`, data),
+
+  prescribeMedication: (patientId: number, data: { name: string; dosage?: string; frequency?: string; instructions?: string; end_date?: string }) =>
+    api.post<Medication>(`/doctor/patient/${patientId}/medications`, data),
 };
 
 // ── Letters to Baby ────────────────────────────────

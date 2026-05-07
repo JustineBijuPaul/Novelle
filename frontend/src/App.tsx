@@ -22,8 +22,12 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 }
 
 function PublicRoute({ children }: { children: React.ReactNode }) {
-  const { isAuthenticated } = useAuthStore();
-  return !isAuthenticated ? <>{children}</> : <Navigate to="/dashboard" replace />;
+  const { isAuthenticated, user } = useAuthStore();
+  if (isAuthenticated) {
+    const target = user?.role === 'doctor' || user?.role === 'platform_admin' ? '/doctor/patients' : '/dashboard';
+    return <Navigate to={target} replace />;
+  }
+  return <>{children}</>;
 }
 
 export default function App() {
@@ -39,7 +43,11 @@ export default function App() {
       {/* Protected Routes inside App Layout */}
       <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
-        <Route path="dashboard" element={<DashboardPage />} />
+        <Route path="dashboard" element={
+          useAuthStore.getState().user?.role === 'doctor' || useAuthStore.getState().user?.role === 'platform_admin' 
+            ? <Navigate to="/doctor/patients" replace /> 
+            : <DashboardPage />
+        } />
         <Route path="health-log" element={<HealthLogPage />} />
         <Route path="mental-health" element={<MentalHealthPage />} />
         <Route path="risk-report" element={<RiskReportPage />} />
@@ -48,7 +56,9 @@ export default function App() {
         <Route path="baby-growth" element={<BabyGrowthPage />} />
         <Route path="hospitals" element={<HospitalsPage />} />
         <Route path="reminders" element={<RemindersPage />} />
-        <Route path="doctor" element={<DoctorDashboardPage />} />
+        <Route path="doctor/patients" element={<DoctorDashboardPage />} />
+        <Route path="doctor/escalations" element={<DoctorDashboardPage />} />
+        <Route path="doctor" element={<Navigate to="/doctor/patients" replace />} />
         <Route path="admin" element={<AdminDashboardPage />} />
       </Route>
 

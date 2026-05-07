@@ -1,6 +1,7 @@
 """Feature routes — journal, companion AI, hospitals, reminders."""
 
 from fastapi import APIRouter, Depends, HTTPException, Query
+from typing import Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc
 from datetime import datetime, timezone, date
@@ -251,9 +252,9 @@ def _haversine(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
 
 @router.get("/hospitals/nearby", response_model=list[HospitalResponse])
 async def find_nearby_hospitals(
-    lat: float = Query(...),
-    lng: float = Query(...),
-    radius_km: float = Query(20, ge=1, le=100),
+    lat: Optional[float] = Query(None),
+    lng: Optional[float] = Query(None),
+    radius_km: float = Query(20, ge=1, le=10000),
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -262,16 +263,24 @@ async def find_nearby_hospitals(
 
     nearby = []
     for h in hospitals:
-        if h.location_lat and h.location_lng:
+        resp = HospitalResponse.model_validate(h)
+        resp.emergency_available = h.is_emergency_capable
+        
+        if lat is not None and lng is not None and h.location_lat and h.location_lng:
             dist = _haversine(lat, lng, h.location_lat, h.location_lng)
             if dist <= radius_km:
-                resp = HospitalResponse.model_validate(h)
                 resp.distance_km = round(dist, 1)
-                resp.emergency_available = h.is_emergency_capable
                 nearby.append(resp)
+        elif lat is None or lng is None:
+            # If no location provided, include all
+            nearby.append(resp)
 
-    nearby.sort(key=lambda x: x.distance_km or 999)
-    return nearby[:20]
+    if lat is not None and lng is not None:
+        nearby.sort(key=lambda x: x.distance_km or 9999)
+    else:
+        nearby.sort(key=lambda x: x.name)
+        
+    return nearby[:50]
 
 
 # ═══════════════════════════════════════════════════

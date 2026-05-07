@@ -172,8 +172,6 @@ npm run dev
 
 ### Test Credentials
 
-### Test Credentials
-
 | Role | Email | Password |
 | :--- | :--- | :--- |
 | **Patient (Pregnant)** | `patient@novelle.com` | `Password123` |

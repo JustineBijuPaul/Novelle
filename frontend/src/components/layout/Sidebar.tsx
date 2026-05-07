@@ -3,7 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import {
   Home, Heart, Brain, Activity, MessageCircle, BookOpen,
   MapPin, Bell, User, LogOut, Menu, X, Baby, AlertTriangle,
-  Stethoscope, ChevronRight, Shield, Users, Building2,
+  Stethoscope, ChevronRight, Shield, Users, Building2, ShieldAlert,
+  Calendar, Video, Zap
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAppStore } from '../../stores/appStore';
@@ -22,12 +23,13 @@ const userNavItems = [
 ];
 
 const doctorNavItems = [
-  { path: '/doctor', label: 'Dashboard', icon: Stethoscope },
+  { path: '/doctor/patients', label: 'Patients', icon: Users },
+  { path: '/doctor/escalations', label: 'Escalations', icon: ShieldAlert },
 ];
 
 const adminNavItems = [
   { path: '/admin', label: 'Admin Dashboard', icon: Shield },
-  { path: '/doctor', label: 'Doctor View', icon: Stethoscope },
+  { path: '/doctor/patients', label: 'Doctor View', icon: Stethoscope },
 ];
 
 export default function Sidebar() {
@@ -69,7 +71,10 @@ export default function Sidebar() {
       >
         {/* Logo */}
         <div className="flex items-center justify-between px-6 py-5 border-b border-gray-100">
-          <Link to="/dashboard" className="flex items-center gap-2.5">
+          <Link 
+            to={user?.role === 'doctor' || user?.role === 'platform_admin' ? '/doctor/patients' : '/dashboard'} 
+            className="flex items-center gap-2.5"
+          >
             <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-primary-400 to-primary-600 flex items-center justify-center">
               <Heart className="w-5 h-5 text-white" fill="white" />
             </div>
@@ -81,8 +86,10 @@ export default function Sidebar() {
         </div>
 
         {/* Nav items */}
-        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto h-[calc(100%-140px)]">
-          {navItems.map((item) => {
+        <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto h-[calc(100%-140px)] scrollbar-hide">
+          <div className="mb-4">
+            <p className="px-3 text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-2">Navigation</p>
+            {navItems.map((item) => {
             const isActive = location.pathname === item.path;
             return (
               <Link
@@ -102,6 +109,64 @@ export default function Sidebar() {
               </Link>
             );
           })}
+          </div>
+
+          {/* Doctor-specific Widgets */}
+          {user?.role === 'doctor' && (
+            <div className="mt-8 space-y-6 pb-20">
+              {/* Critical Alerts */}
+              <div className="px-3">
+                <div className="flex items-center gap-2 mb-3">
+                  <div className="w-1.5 h-1.5 rounded-full bg-red-500 animate-pulse" />
+                  <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Critical Alerts</p>
+                </div>
+                <div className="space-y-2">
+                  <SidebarAlert label="BP crossed 145/95" level="red" />
+                  <SidebarAlert label="Missed 3 check-ins" level="orange" />
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="px-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Quick Actions</p>
+                <div className="grid grid-cols-2 gap-2">
+                  <SidebarAction icon={Calendar} label="Schedule" />
+                  <SidebarAction icon={Video} label="Video" />
+                  <SidebarAction icon={MessageCircle} label="Chat" />
+                  <SidebarAction icon={Zap} label="Escalate" />
+                </div>
+              </div>
+
+              {/* Patient Pulse */}
+              <div className="px-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Patient Pulse</p>
+                <div className="bg-gray-50 rounded-xl p-3 space-y-3 border border-gray-100">
+                  <div>
+                    <div className="flex justify-between text-[10px] mb-1">
+                      <span className="text-gray-500">Adherence</span>
+                      <span className="text-green-600 font-bold">87%</span>
+                    </div>
+                    <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
+                      <div className="h-full bg-green-500" style={{ width: '87%' }} />
+                    </div>
+                  </div>
+                  <div className="flex justify-between items-center">
+                    <span className="text-[10px] text-gray-500">Compliance</span>
+                    <span className="text-[10px] font-bold text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">High</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Tasks */}
+              <div className="px-3">
+                <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Pending Tasks</p>
+                <div className="space-y-2">
+                  <SidebarTask label="Review Glucose" priority="high" />
+                  <SidebarTask label="Follow-up Scan" priority="medium" />
+                </div>
+              </div>
+            </div>
+          )}
         </nav>
 
         {/* User section */}
@@ -125,5 +190,35 @@ export default function Sidebar() {
         </div>
       </aside>
     </>
+  );
+}
+
+function SidebarAlert({ label, level }: { label: string; level: 'red' | 'orange' }) {
+  return (
+    <div className={cn(
+      "px-2 py-1.5 rounded-lg border text-[10px] font-bold flex items-center justify-between",
+      level === 'red' ? "bg-red-50 text-red-700 border-red-100" : "bg-orange-50 text-orange-700 border-orange-100"
+    )}>
+      <span className="truncate">{label}</span>
+      <ChevronRight className="w-2.5 h-2.5 shrink-0" />
+    </div>
+  );
+}
+
+function SidebarAction({ icon: Icon, label }: { icon: any; label: string }) {
+  return (
+    <button className="flex flex-col items-center justify-center p-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-primary-50 hover:border-primary-200 transition-all group">
+      <Icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-primary-500 mb-1" />
+      <span className="text-[9px] font-medium text-gray-500 group-hover:text-primary-700">{label}</span>
+    </button>
+  );
+}
+
+function SidebarTask({ label, priority }: { label: string; priority: 'high' | 'medium' }) {
+  return (
+    <div className="flex items-center gap-2 group cursor-pointer">
+      <div className={cn("w-1.5 h-1.5 rounded-full", priority === 'high' ? "bg-red-500" : "bg-amber-500")} />
+      <span className="text-[10px] text-gray-600 group-hover:text-gray-900 truncate flex-1">{label}</span>
+    </div>
   );
 }
