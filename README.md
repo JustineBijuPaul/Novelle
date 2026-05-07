@@ -172,15 +172,14 @@ npm run dev
 
 ### Test Credentials
 
-```bash
-Test credentials (password: TestUser@123):
+| Role | Email | Password |
+| :--- | :--- | :--- |
+| **Patient (Pregnant)** | `patient@novelle.com` | `Password123` |
+| **Patient (Postpartum)** | `postpartum@novelle.com` | `Password123` |
+| **Doctor** | `doctor@novelle.com` | `Password123` |
+| **Hospital Admin** | `hadmin@novelle.com` | `Password123` |
+| **Platform Admin** | `admin@novelle.com` | `Password123` |
 
-testuser@novelle.app — pregnant user
-dr.anita@novelle.app — doctor
-admin@novelle.app — platform admin
-```
-
----
 
 ## API Endpoints
 
