@@ -113,4 +113,11 @@ if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
     # Run the server via uvicorn programmatically
-    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)
+    # NOTE: We have disabled 'reload' because running inside a OneDrive folder 
+    # on Windows often triggers infinite reload loops due to background syncing.
+    uvicorn.run(
+        "main:app", 
+        host="0.0.0.0", 
+        port=port, 
+        reload=False
+    )

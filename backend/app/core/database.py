@@ -27,26 +27,37 @@ def _normalize_db_url(url: str) -> tuple[str, dict]:
             url = "postgresql+asyncpg://" + url[len(prefix):]
             break
 
-    connect_args: dict = {}
+    # Default connection arguments for asyncpg
+    connect_args: dict = {
+        "command_timeout": 30,  # Prevent hanging indefinitely
+        "timeout": 30,          # Connection timeout
+    }
+
     if "?" in url:
         base, qs = url.split("?", 1)
-        kept, needs_ssl, sslmode = [], False, "disable"
+        kept = []
+        needs_ssl = False
         for param in qs.split("&"):
             if not param:
                 continue
-            key = param.split("=", 1)[0]
+            parts = param.split("=", 1)
+            key = parts[0]
             if key == "sslmode":
-                sslmode = param.split("=", 1)[1]
-                needs_ssl = sslmode in ("require", "verify-ca", "verify-full")
+                val = parts[1] if len(parts) > 1 else "disable"
+                if val in ("require", "verify-ca", "verify-full"):
+                    needs_ssl = True
             elif key not in _ASYNCPG_UNSUPPORTED:
                 kept.append(param)
+        
         url = base + ("?" + "&".join(kept) if kept else "")
+        
         if needs_ssl:
+            # Create a permissive SSL context for cloud providers like Neon/Supabase
             ctx = _ssl.create_default_context()
-            if sslmode == "require":
-                ctx.check_hostname = False
-                ctx.verify_mode = _ssl.CERT_NONE
+            ctx.check_hostname = False
+            ctx.verify_mode = _ssl.CERT_NONE
             connect_args["ssl"] = ctx
+            
     return url, connect_args
 
 _db_url, _connect_args = _normalize_db_url(settings.DATABASE_URL)
@@ -55,8 +66,9 @@ _db_url, _connect_args = _normalize_db_url(settings.DATABASE_URL)
 engine = create_async_engine(
     _db_url,
     echo=settings.DEBUG,
-    pool_size=20,
-    max_overflow=10,
+    pool_size=10,          # Reduced default for better compatibility
+    max_overflow=5,
+    pool_pre_ping=True,    # Check connection health
     connect_args=_connect_args,
 )
 
@@ -87,7 +99,12 @@ def get_mongo_db():
 
 async def init_mongo():
     global mongo_client, mongo_db
-    mongo_client = AsyncIOMotorClient(settings.MONGODB_URL)
+    # Add serverSelectionTimeoutMS to prevent long hangs (e.g., 5 seconds)
+    mongo_client = AsyncIOMotorClient(
+        settings.MONGODB_URL,
+        serverSelectionTimeoutMS=5000,
+        connectTimeoutMS=5000
+    )
     mongo_db = mongo_client[settings.MONGODB_DB_NAME]
 
 
@@ -103,7 +120,13 @@ redis_client: aioredis.Redis | None = None
 
 async def init_redis():
     global redis_client
-    redis_client = aioredis.from_url(settings.REDIS_URL, decode_responses=True)
+    # Add socket_timeout to prevent hanging
+    redis_client = aioredis.from_url(
+        settings.REDIS_URL, 
+        decode_responses=True,
+        socket_connect_timeout=5,
+        socket_timeout=5
+    )
 
 
 async def get_redis() -> aioredis.Redis:
