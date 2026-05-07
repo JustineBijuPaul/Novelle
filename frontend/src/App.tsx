@@ -15,6 +15,18 @@ import HospitalsPage from './pages/HospitalsPage';
 import RemindersPage from './pages/RemindersPage';
 import DoctorDashboardPage from './pages/DoctorDashboardPage';
 import AdminDashboardPage from './pages/AdminDashboardPage';
+import HospitalAdminDashboard from './pages/HospitalAdminDashboard';
+import HospitalAdminPatients from './pages/HospitalAdminPatients';
+import HospitalAdminStaff from './pages/HospitalAdminStaff';
+import HospitalAdminAppointments from './pages/HospitalAdminAppointments';
+import HospitalAdminEscalations from './pages/HospitalAdminEscalations';
+import HospitalAdminResources from './pages/HospitalAdminResources';
+import HospitalAdminCommunication from './pages/HospitalAdminCommunication';
+import HospitalAdminAnalytics from './pages/HospitalAdminAnalytics';
+import HospitalAdminAIInsights from './pages/HospitalAdminAIInsights';
+import HospitalAdminReports from './pages/HospitalAdminReports';
+import HospitalAdminMultiHospital from './pages/HospitalAdminMultiHospital';
+import HospitalAdminSettings from './pages/HospitalAdminSettings';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -24,7 +36,9 @@ function PrivateRoute({ children }: { children: React.ReactNode }) {
 function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   if (isAuthenticated) {
-    const target = user?.role === 'doctor' || user?.role === 'platform_admin' ? '/doctor/patients' : '/dashboard';
+    let target = '/dashboard';
+    if (user?.role === 'doctor' || user?.role === 'platform_admin') target = '/doctor/patients';
+    else if (user?.role === 'hospital_admin') target = '/hospital-admin';
     return <Navigate to={target} replace />;
   }
   return <>{children}</>;
@@ -44,7 +58,9 @@ export default function App() {
       <Route path="/" element={<PrivateRoute><AppLayout /></PrivateRoute>}>
         <Route index element={<Navigate to="/dashboard" replace />} />
         <Route path="dashboard" element={
-          useAuthStore.getState().user?.role === 'doctor' || useAuthStore.getState().user?.role === 'platform_admin' 
+          useAuthStore.getState().user?.role === 'hospital_admin' 
+            ? <Navigate to="/hospital-admin" replace />
+            : useAuthStore.getState().user?.role === 'doctor' || useAuthStore.getState().user?.role === 'platform_admin' 
             ? <Navigate to="/doctor/patients" replace /> 
             : <DashboardPage />
         } />
@@ -60,6 +76,21 @@ export default function App() {
         <Route path="doctor/escalations" element={<DoctorDashboardPage />} />
         <Route path="doctor" element={<Navigate to="/doctor/patients" replace />} />
         <Route path="admin" element={<AdminDashboardPage />} />
+        
+        {/* Hospital Admin Routes */}
+        <Route path="hospital-admin" element={<HospitalAdminDashboard />} />
+        <Route path="hospital-admin/patients" element={<HospitalAdminPatients />} />
+        <Route path="hospital-admin/staff" element={<HospitalAdminStaff />} />
+        <Route path="hospital-admin/appointments" element={<HospitalAdminAppointments />} />
+        <Route path="hospital-admin/escalations" element={<HospitalAdminEscalations />} />
+        <Route path="hospital-admin/resources" element={<HospitalAdminResources />} />
+        <Route path="hospital-admin/communication" element={<HospitalAdminCommunication />} />
+        <Route path="hospital-admin/analytics" element={<HospitalAdminAnalytics />} />
+        <Route path="hospital-admin/ai-insights" element={<HospitalAdminAIInsights />} />
+        <Route path="hospital-admin/reports" element={<HospitalAdminReports />} />
+        <Route path="hospital-admin/hospitals" element={<HospitalAdminMultiHospital />} />
+        <Route path="hospital-admin/settings" element={<HospitalAdminSettings />} />
+        <Route path="hospital-admin/:subpage" element={<HospitalAdminDashboard />} />
       </Route>
 
       {/* Catch-all */}

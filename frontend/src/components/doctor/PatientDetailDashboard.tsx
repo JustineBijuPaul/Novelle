@@ -11,7 +11,7 @@ import {
   AreaChart, Area, BarChart, Bar, Cell
 } from 'recharts';
 import type { PatientDashboardData, ClinicalNote, Appointment, Medication } from '../../types';
-import { formatDate, getRiskBadge } from '../../utils/helpers';
+import { formatDate, getRiskBadge, cn } from '../../utils/helpers';
 
 interface Props {
   data: PatientDashboardData;
@@ -28,6 +28,21 @@ export default function PatientDetailDashboard({ data, patientName, onBack, onAd
 
   const currentWeek = data.profile?.pregnancy_week || 0;
   const progress = (currentWeek / 40) * 100;
+
+  // Derive Clinical Status
+  const adherence = 87; // This could be calculated from data.medications logs
+  const compliance = "High";
+  const missedLogs = 1;
+
+  const handleQuickAction = (action: string) => {
+    console.log(`Executing quick action: ${action}`);
+    if (action === 'Schedule') {
+      // Trigger appointment modal
+    } else if (action === 'Video Call') {
+      window.open(data.appointments?.[0]?.telemedicine_link || '#', '_blank');
+    }
+    // Add other handlers...
+  };
 
   return (
     <div className="space-y-6 animate-fade-in pb-12">
@@ -328,12 +343,12 @@ export default function PatientDetailDashboard({ data, patientName, onBack, onAd
           <div className="card">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Quick Actions</h3>
             <div className="grid grid-cols-2 gap-2">
-              <ActionButton icon={Calendar} label="Schedule" color="blue" />
-              <ActionButton icon={Video} label="Video Call" color="purple" />
-              <ActionButton icon={MessageSquare} label="Message" color="primary" />
-              <ActionButton icon={Pill} label="Prescribe" color="orange" />
-              <ActionButton icon={Zap} label="Escalate" color="red" />
-              <ActionButton icon={FileText} label="Report" color="gray" />
+              <ActionButton icon={Calendar} label="Schedule" color="blue" onClick={() => handleQuickAction('Schedule')} />
+              <ActionButton icon={Video} label="Video Call" color="purple" onClick={() => handleQuickAction('Video Call')} />
+              <ActionButton icon={MessageSquare} label="Message" color="primary" onClick={() => handleQuickAction('Message')} />
+              <ActionButton icon={Pill} label="Prescribe" color="orange" onClick={() => handleQuickAction('Prescribe')} />
+              <ActionButton icon={Zap} label="Escalate" color="red" onClick={() => handleQuickAction('Escalate')} />
+              <ActionButton icon={FileText} label="Report" color="gray" onClick={() => handleQuickAction('Report')} />
             </div>
           </div>
 
@@ -341,25 +356,25 @@ export default function PatientDetailDashboard({ data, patientName, onBack, onAd
           <div className="card">
             <h3 className="text-xs font-bold text-gray-500 uppercase tracking-wider mb-4">Clinical Status</h3>
             <div className="space-y-4">
-              <StatusRow label="Last active" value="2h ago" />
-              <StatusRow label="Last vitals" value="Today, 08:30" />
+              <StatusRow label="Last active" value={data.recent_vitals?.[0]?.log_date ? formatDate(data.recent_vitals[0].log_date) : 'Today'} />
+              <StatusRow label="Last vitals" value={data.recent_vitals?.[0]?.log_date ? formatDate(data.recent_vitals[0].log_date) : 'Today'} />
               <div className="pt-2">
                 <div className="flex justify-between text-[10px] font-bold text-gray-500 mb-1">
                   <span>Medication Adherence</span>
-                  <span className="text-green-600">87%</span>
+                  <span className="text-green-600">{adherence}%</span>
                 </div>
                 <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                  <motion.div initial={{ width: 0 }} animate={{ width: '87%' }} className="h-full bg-green-500" />
+                  <motion.div initial={{ width: 0 }} animate={{ width: `${adherence}%` }} className="h-full bg-green-500" />
                 </div>
               </div>
               <div className="flex gap-2">
                 <div className="flex-1 bg-gray-50 p-2 rounded-lg text-center">
                   <p className="text-[10px] text-gray-500">Missed Logs</p>
-                  <p className="text-sm font-bold text-red-500">1</p>
+                  <p className="text-sm font-bold text-red-500">{missedLogs}</p>
                 </div>
                 <div className="flex-1 bg-gray-50 p-2 rounded-lg text-center">
                   <p className="text-[10px] text-gray-500">Compliance</p>
-                  <p className="text-sm font-bold text-primary-600">High</p>
+                  <p className="text-sm font-bold text-primary-600">{compliance}</p>
                 </div>
               </div>
             </div>
@@ -380,25 +395,19 @@ export default function PatientDetailDashboard({ data, patientName, onBack, onAd
           <div className="card bg-primary-900 text-white border-none shadow-lg">
             <h3 className="text-xs font-bold uppercase tracking-widest text-primary-300 mb-4">Timeline</h3>
             <div className="space-y-4 relative before:absolute before:left-2 before:top-2 before:bottom-2 before:w-0.5 before:bg-white/10">
-              <TimelineEvent 
-                type="Upcoming" 
-                label="Routine Checkup" 
-                date="May 12, 10:00 AM" 
-                isLast={false} 
-                active
-              />
-              <TimelineEvent 
-                type="Last Consultation" 
-                label="Anomaly Review" 
-                date="Apr 28, 02:30 PM" 
-                isLast={false}
-              />
-              <TimelineEvent 
-                type="Next Scan" 
-                label="Growth Scan" 
-                date="Jun 05, 09:00 AM" 
-                isLast={true}
-              />
+              {data.appointments.slice(0, 3).map((app, idx) => (
+                <TimelineEvent 
+                  key={app.id}
+                  type={idx === 0 ? "Upcoming" : "Scheduled"} 
+                  label={app.reason || 'General Checkup'} 
+                  date={formatDate(app.appointment_date)} 
+                  isLast={idx === 2 || idx === data.appointments.length - 1} 
+                  active={idx === 0}
+                />
+              ))}
+              {data.appointments.length === 0 && (
+                <p className="text-[10px] text-gray-400 italic">No appointments found</p>
+              )}
             </div>
             <button className="w-full mt-4 py-2 bg-white/10 hover:bg-white/20 rounded-lg text-xs font-medium transition-colors">
               View Detailed History
@@ -496,9 +505,12 @@ function AlertCard({ label, level, time }: { label: string; level: 'red' | 'oran
   );
 }
 
-function ActionButton({ icon: Icon, label, color }: { icon: any; label: string; color: string }) {
+function ActionButton({ icon: Icon, label, color, onClick }: { icon: any; label: string; color: string; onClick?: () => void }) {
   return (
-    <button className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-100 hover:border-primary-200 hover:bg-primary-50 transition-all gap-1.5 group">
+    <button 
+      onClick={onClick}
+      className="flex flex-col items-center justify-center p-3 rounded-xl border border-gray-100 hover:border-primary-200 hover:bg-primary-50 transition-all gap-1.5 group"
+    >
       <div className="p-2 rounded-lg bg-gray-50 group-hover:bg-white transition-colors">
         <Icon className="w-4 h-4 text-gray-500 group-hover:text-primary-500" />
       </div>

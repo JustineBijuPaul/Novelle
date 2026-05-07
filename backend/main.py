@@ -1,6 +1,5 @@
 """
-Novelle — FastAPI Application Entry Point
-AI-Powered Maternal Health Risk Support Platform
+Novelle — AI-Powered Maternal Health Risk Support Platform (v1.1)
 """
 
 from fastapi import FastAPI
@@ -82,6 +81,7 @@ from app.api.routes.risk import router as risk_router
 from app.api.routes.features import router as features_router
 from app.api.routes.doctor import router as doctor_router
 from app.api.routes.admin import router as admin_router
+from app.api.routes.hospital_admin import router as hospital_admin_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -91,6 +91,7 @@ app.include_router(risk_router, prefix="/api")
 app.include_router(features_router, prefix="/api")
 app.include_router(doctor_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(hospital_admin_router, prefix="/api/hospital-admin")
 
 @app.get("/api/videos/list")
 async def list_available_videos():
@@ -146,5 +147,5 @@ if __name__ == "__main__":
         "main:app", 
         host="0.0.0.0", 
         port=port, 
-        reload=False
+        reload=True
     )

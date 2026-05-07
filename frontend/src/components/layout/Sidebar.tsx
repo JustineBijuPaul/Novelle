@@ -4,7 +4,9 @@ import {
   Home, Heart, Brain, Activity, MessageCircle, BookOpen,
   MapPin, Bell, User, LogOut, Menu, X, Baby, AlertTriangle,
   Stethoscope, ChevronRight, Shield, Users, Building2, ShieldAlert,
-  Calendar, Video, Zap
+  Calendar, Video, Zap, LayoutDashboard, UserSquare2, BarChart3,
+  FileBarChart, MessagesSquare, Sparkles, Settings as SettingsIcon,
+  BedDouble, GraduationCap
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAppStore } from '../../stores/appStore';
@@ -27,6 +29,25 @@ const doctorNavItems = [
   { path: '/doctor/escalations', label: 'Escalations', icon: ShieldAlert },
 ];
 
+const hospitalAdminNavItems = [
+  // Core Operations
+  { path: '/hospital-admin', label: 'Dashboard', icon: LayoutDashboard, category: 'Core' },
+  { path: '/hospital-admin/patients', label: 'Patients', icon: Users, category: 'Core' },
+  { path: '/hospital-admin/appointments', label: 'Appointments', icon: Calendar, category: 'Core' },
+  { path: '/hospital-admin/escalations', label: 'Escalations', icon: ShieldAlert, category: 'Core' },
+  // Management
+  { path: '/hospital-admin/staff', label: 'Doctors & Staff', icon: Stethoscope, category: 'Management' },
+  { path: '/hospital-admin/resources', label: 'Resources', icon: BedDouble, category: 'Management' },
+  { path: '/hospital-admin/communication', label: 'Communication', icon: MessagesSquare, category: 'Management' },
+  // Intelligence
+  { path: '/hospital-admin/analytics', label: 'Analytics', icon: BarChart3, category: 'Intelligence' },
+  { path: '/hospital-admin/ai-insights', label: 'AI Insights', icon: Sparkles, category: 'Intelligence' },
+  { path: '/hospital-admin/reports', label: 'Reports', icon: FileBarChart, category: 'Intelligence' },
+  // System
+  { path: '/hospital-admin/hospitals', label: 'Hospitals', icon: Building2, category: 'System' },
+  { path: '/hospital-admin/settings', label: 'Settings', icon: SettingsIcon, category: 'System' },
+];
+
 const adminNavItems = [
   { path: '/admin', label: 'Admin Dashboard', icon: Shield },
   { path: '/doctor/patients', label: 'Doctor View', icon: Stethoscope },
@@ -36,9 +57,20 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { sidebarOpen, toggleSidebar } = useAppStore();
+  const { sidebarOpen, toggleSidebar, activePatientData } = useAppStore();
 
-  const navItems = user?.role === 'platform_admin' ? adminNavItems : user?.role === 'doctor' ? doctorNavItems : userNavItems;
+  const handleAction = (action: string) => {
+    console.log(`Sidebar Action: ${action}`);
+    // Implement global handlers or check activePatientData
+  };
+
+  const navItems = user?.role === 'platform_admin' 
+    ? adminNavItems 
+    : user?.role === 'hospital_admin' 
+    ? hospitalAdminNavItems 
+    : user?.role === 'doctor' 
+    ? doctorNavItems 
+    : userNavItems;
 
   const handleLogout = () => {
     logout();
@@ -121,8 +153,17 @@ export default function Sidebar() {
                   <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Critical Alerts</p>
                 </div>
                 <div className="space-y-2">
-                  <SidebarAlert label="BP crossed 145/95" level="red" />
-                  <SidebarAlert label="Missed 3 check-ins" level="orange" />
+                  {activePatientData ? (
+                    <>
+                      {activePatientData.physical_predictions?.overall_risk === 'HIGH' && <SidebarAlert label="Elevated Physical Risk" level="red" />}
+                      {activePatientData.mental_predictions?.overall_risk === 'HIGH' && <SidebarAlert label="Mood Deterioration" level="red" />}
+                      <SidebarAlert label="Review Recent Vitals" level="orange" />
+                    </>
+                  ) : (
+                    <>
+                      <SidebarAlert label="No active alerts" level="orange" />
+                    </>
+                  )}
                 </div>
               </div>
 
@@ -130,10 +171,10 @@ export default function Sidebar() {
               <div className="px-3">
                 <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Quick Actions</p>
                 <div className="grid grid-cols-2 gap-2">
-                  <SidebarAction icon={Calendar} label="Schedule" />
-                  <SidebarAction icon={Video} label="Video" />
-                  <SidebarAction icon={MessageCircle} label="Chat" />
-                  <SidebarAction icon={Zap} label="Escalate" />
+                  <SidebarAction icon={Calendar} label="Schedule" onClick={() => handleAction('Schedule')} />
+                  <SidebarAction icon={Video} label="Video" onClick={() => handleAction('Video')} />
+                  <SidebarAction icon={MessageCircle} label="Chat" onClick={() => handleAction('Chat')} />
+                  <SidebarAction icon={Zap} label="Escalate" onClick={() => handleAction('Escalate')} />
                 </div>
               </div>
 
@@ -144,15 +185,17 @@ export default function Sidebar() {
                   <div>
                     <div className="flex justify-between text-[10px] mb-1">
                       <span className="text-gray-500">Adherence</span>
-                      <span className="text-green-600 font-bold">87%</span>
+                      <span className="text-green-600 font-bold">{activePatientData ? '87%' : '--'}</span>
                     </div>
                     <div className="h-1 bg-gray-200 rounded-full overflow-hidden">
-                      <div className="h-full bg-green-500" style={{ width: '87%' }} />
+                      <div className="h-full bg-green-500" style={{ width: activePatientData ? '87%' : '0%' }} />
                     </div>
                   </div>
                   <div className="flex justify-between items-center">
                     <span className="text-[10px] text-gray-500">Compliance</span>
-                    <span className="text-[10px] font-bold text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">High</span>
+                    <span className="text-[10px] font-bold text-primary-600 bg-primary-50 px-1.5 py-0.5 rounded">
+                      {activePatientData ? 'High' : 'N/A'}
+                    </span>
                   </div>
                 </div>
               </div>
@@ -164,6 +207,19 @@ export default function Sidebar() {
                   <SidebarTask label="Review Glucose" priority="high" />
                   <SidebarTask label="Follow-up Scan" priority="medium" />
                 </div>
+              </div>
+            </div>
+          )}
+
+          {/* Hospital Admin Live Status */}
+          {user?.role === 'hospital_admin' && (
+            <div className="px-3 mt-8 pb-20">
+              <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest mb-3">Live Status</p>
+              <div className="bg-primary-900 rounded-xl p-3 space-y-2.5 shadow-lg border border-primary-800">
+                <StatusIndicator label="AI Engine Online" status="online" />
+                <StatusIndicator label="12 Doctors Active" status="active" />
+                <StatusIndicator label="3 Urgent Escalations" status="urgent" />
+                <StatusIndicator label="2 Emergency Cases" status="urgent" />
               </div>
             </div>
           )}
@@ -205,9 +261,12 @@ function SidebarAlert({ label, level }: { label: string; level: 'red' | 'orange'
   );
 }
 
-function SidebarAction({ icon: Icon, label }: { icon: any; label: string }) {
+function SidebarAction({ icon: Icon, label, onClick }: { icon: any; label: string; onClick?: () => void }) {
   return (
-    <button className="flex flex-col items-center justify-center p-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-primary-50 hover:border-primary-200 transition-all group">
+    <button 
+      onClick={onClick}
+      className="flex flex-col items-center justify-center p-2 rounded-xl bg-gray-50 border border-gray-100 hover:bg-primary-50 hover:border-primary-200 transition-all group"
+    >
       <Icon className="w-3.5 h-3.5 text-gray-400 group-hover:text-primary-500 mb-1" />
       <span className="text-[9px] font-medium text-gray-500 group-hover:text-primary-700">{label}</span>
     </button>
@@ -219,6 +278,21 @@ function SidebarTask({ label, priority }: { label: string; priority: 'high' | 'm
     <div className="flex items-center gap-2 group cursor-pointer">
       <div className={cn("w-1.5 h-1.5 rounded-full", priority === 'high' ? "bg-red-500" : "bg-amber-500")} />
       <span className="text-[10px] text-gray-600 group-hover:text-gray-900 truncate flex-1">{label}</span>
+    </div>
+  );
+}
+
+function StatusIndicator({ label, status }: { label: string; status: 'online' | 'active' | 'urgent' }) {
+  const colors = {
+    online: 'bg-green-500',
+    active: 'bg-blue-400',
+    urgent: 'bg-red-500 animate-pulse'
+  };
+  
+  return (
+    <div className="flex items-center gap-2">
+      <div className={cn("w-1.5 h-1.5 rounded-full", colors[status])} />
+      <span className="text-[10px] font-medium text-primary-100">{label}</span>
     </div>
   );
 }

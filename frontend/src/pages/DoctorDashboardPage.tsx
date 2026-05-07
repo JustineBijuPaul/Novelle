@@ -9,6 +9,7 @@ import { doctorService, escalationService } from '../services/endpoints';
 import { getRiskBadge, formatDate } from '../utils/helpers';
 import type { Escalation, PatientDashboardData } from '../types';
 import PatientDetailDashboard from '../components/doctor/PatientDetailDashboard';
+import { useAppStore } from '../stores/appStore';
 
 interface PatientRisk {
   mental_risk_level: string | null;
@@ -41,6 +42,7 @@ export default function DoctorDashboardPage() {
   const [predictions, setPredictions] = useState<PatientDashboardData | null>(null);
   const [loadingPredictions, setLoadingPredictions] = useState(false);
   const [stats, setStats] = useState({ total_patients: 0, high_risk: 0, pending: 0, resolved: 0 });
+  const { setActivePatientData } = useAppStore();
 
   useEffect(() => {
     loadData();
@@ -70,6 +72,7 @@ export default function DoctorDashboardPage() {
     try {
       const res = await doctorService.getPatientPredictions(patientId);
       setPredictions(res.data);
+      setActivePatientData(res.data);
     } catch (error) {
       console.error('Failed to load predictions:', error);
     } finally {
@@ -100,6 +103,7 @@ export default function DoctorDashboardPage() {
   const closePredictions = () => {
     setSelectedPatient(null);
     setPredictions(null);
+    setActivePatientData(null);
   };
 
   const resolveEscalation = async (id: string) => {
