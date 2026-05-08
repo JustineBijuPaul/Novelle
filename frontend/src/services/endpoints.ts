@@ -146,27 +146,50 @@ export const escalationService = {
     api.put(`/escalation/${id}/resolve`, data),
 };
 
+// ── Medication ──────────────────────────────────────
+export const medicationService = {
+  list: () => api.get<Medication[]>('/patient/medications'),
+  logAdherence: (medicationId: number, data: { status: string; dose_time: string }) =>
+    api.post(`/patient/medications/${medicationId}/log`, data),
+};
+
 // ── Doctor ──────────────────────────────────────────
 export const doctorService = {
+  // Dashboard
   getDashboard: () => api.get('/doctor/dashboard'),
-
-  getPatientSummary: (userId: number) =>
-    api.get(`/doctor/patient/${userId}/summary`),
-
-  getPatientPredictions: (userId: number) =>
-    api.get(`/doctor/patient/${userId}/predictions`),
-
-  updateEscalation: (escalationId: number, data: { status: string; doctor_notes?: string }) =>
-    api.put(`/doctor/escalation/${escalationId}`, data),
-
-  addNote: (patientId: number, content: string, noteType = 'consultation') =>
-    api.post<ClinicalNote>(`/doctor/patient/${patientId}/notes`, { content, note_type: noteType }),
-
-  scheduleAppointment: (patientId: number, data: { appointment_date: string; reason?: string; appointment_type?: string; telemedicine_link?: string }) =>
-    api.post<Appointment>(`/doctor/patient/${patientId}/appointments`, data),
-
-  prescribeMedication: (patientId: number, data: { name: string; dosage?: string; frequency?: string; instructions?: string; end_date?: string }) =>
-    api.post<Medication>(`/doctor/patient/${patientId}/medications`, data),
+  // Patient details
+  getPatientSummary: (userId: number) => api.get(`/doctor/patient/${userId}/summary`),
+  getPatientPredictions: (userId: number) => api.get(`/doctor/patient/${userId}/predictions`),
+  // Appointments
+  listAppointments: (status?: string) => api.get('/doctor/appointments', { params: status ? { status } : {} }),
+  updateAppointmentStatus: (id: number, status: string) => api.put(`/doctor/appointments/${id}/status`, { status }),
+  scheduleAppointment: (patientId: number, data: any) => api.post(`/doctor/patient/${patientId}/appointments`, data),
+  // Escalations
+  updateEscalation: (escalationId: number, data: { status: string; doctor_notes?: string }) => api.put(`/doctor/escalation/${escalationId}`, data),
+  // Monitoring
+  getMonitoring: () => api.get('/doctor/monitoring'),
+  // Clinical Notes
+  listClinicalNotes: () => api.get('/doctor/clinical-notes'),
+  addNote: (patientId: number, content: string, noteType = 'consultation') => api.post(`/doctor/patient/${patientId}/notes`, { content, note_type: noteType }),
+  // Prescriptions
+  listPrescriptions: (activeOnly?: boolean) => api.get('/doctor/prescriptions', { params: { active_only: activeOnly ?? true } }),
+  prescribeMedication: (patientId: number, data: any) => api.post(`/doctor/patient/${patientId}/medications`, data),
+  // Telehealth
+  listTelehealth: () => api.get('/doctor/telehealth'),
+  // AI Copilot
+  getAICopilot: () => api.get('/doctor/ai-copilot'),
+  // Reports
+  getReports: () => api.get('/doctor/reports'),
+  // Communication
+  getMessages: () => api.get('/doctor/communication'),
+  sendMessage: (data: { receiver_id: number; subject: string; content: string }) => api.post('/doctor/communication', data),
+  // Tasks
+  getTasks: () => api.get('/doctor/tasks'),
+  createTask: (data: { title: string; description?: string; priority?: string; patient_id?: number; due_date?: string }) => api.post('/doctor/tasks', data),
+  updateTaskStatus: (taskId: string, status: string) => api.put(`/doctor/tasks/${taskId}/status`, { status }),
+  // Settings
+  getSettings: () => api.get('/doctor/settings'),
+  updateSettings: (data: any) => api.put('/doctor/settings', data),
 };
 
 // ── Letters to Baby ────────────────────────────────
@@ -293,6 +316,38 @@ export const hospitalAdminService = {
     api.get('/hospital-admin/departments'),
 };
 
+export const patientService = {
+  // Dashboard
+  getDashboardSummary: () => api.get<any>('/patient/dashboard/summary'),
+  // My Pregnancy
+  getMyPregnancy: () => api.get<any>('/patient/my-pregnancy'),
+  // AI Insights
+  getAIInsights: () => api.get<any>('/patient/ai-insights'),
+  // Symptoms
+  listSymptoms: (limit?: number) => api.get<any>(`/patient/symptoms${limit ? `?limit=${limit}` : ''}`),
+  // Baby Growth
+  getBabyGrowth: (week?: number) => api.get<any>(`/patient/baby-growth${week ? `?week=${week}` : ''}`),
+  // Appointments
+  listAppointments: () => api.get<any[]>('/patient/appointments'),
+  createAppointment: (data: any) => api.post<any>('/patient/appointments', data),
+  // Doctors
+  listDoctors: () => api.get<any[]>('/patient/doctors'),
+  // Medications
+  listMedications: () => api.get<any[]>('/patient/medications'),
+  logMedicationAdherence: (id: number, data: any) => api.post(`/patient/medications/${id}/log`, data),
+  // Daily Goals
+  getDailyGoals: () => api.get<any>('/patient/daily-goals'),
+  updateGoal: (goalId: string, completed: boolean) => api.post('/patient/daily-goals/update', { goal_id: goalId, completed }),
+  // Wellness Hub
+  getWellnessHub: () => api.get<any>('/patient/wellness/hub'),
+  // Emergency Support
+  getEmergencyInfo: () => api.get<any>('/patient/emergency'),
+  triggerSOS: (reason: string, severity?: string) => api.post('/patient/emergency/sos', { reason, severity: severity || 'HIGH' }),
+  // Settings
+  getSettings: () => api.get<any>('/patient/settings'),
+  updateSettings: (data: any) => api.put('/patient/settings', data),
+};
+
 export const mlopsService = {
   listModels: () => 
     api.get('/mlops/models'),
@@ -309,7 +364,7 @@ export const mlopsService = {
 export const complianceService = {
   getAuditLogs: (params?: { limit?: number; user_id?: number }) => 
     api.get('/compliance/audit/logs', { params }),
-  updateConsent: (data: { sharing: bool; research: bool; emergency: bool }) => 
+  updateConsent: (data: { sharing: boolean; research: boolean; emergency: boolean }) => 
     api.post('/compliance/consent/update', data),
   getConsentStatus: () => 
     api.get('/compliance/consent/status'),
@@ -331,50 +386,53 @@ export const telemedicineService = {
 };
 
 export const platformAdminService = {
-  getOverview: () => 
-    api.get('/platform-admin/overview'),
-  listOrganizations: () => 
-    api.get('/platform-admin/organizations'),
-  getAIControl: () => 
-    api.get('/platform-admin/ai/control'),
-  getInfrastructure: () => 
-    api.get('/platform-admin/infrastructure'),
-  listHospitals: () => 
-    api.get('/platform-admin/hospitals'),
-  getAiMetrics: () => 
-    api.get('/platform-admin/ai-metrics'),
-  getGlobalAnalytics: () => 
-    api.get('/platform-admin/global-analytics'),
-  getGlobalEscalations: () => 
-    api.get('/platform-admin/global-escalations'),
-  getBillingData: () => 
-    api.get('/platform-admin/billing'),
-  createHospital: (data: any) => 
-    api.post('/platform-admin/hospitals', data),
-  updateHospital: (hospitalId: number, data: any) => 
-    api.patch(`/platform-admin/hospitals/${hospitalId}`, data),
-  deleteHospital: (hospitalId: number) => 
-    api.delete(`/platform-admin/hospitals/${hospitalId}`),
-  getRegionalStats: () => 
-    api.get('/platform-admin/hospitals/regional'),
-  listGlobalUsers: () => 
-    api.get('/platform-admin/users'),
-  provisionUser: (data: any) => 
-    api.post('/platform-admin/users', data),
-  updateUser: (userId: number, data: any) => 
-    api.patch(`/platform-admin/users/${userId}`, data),
-  updateUserStatus: (userId: number, status: string) => 
-    api.patch(`/platform-admin/users/${userId}/status`, { status }),
-  deleteUser: (userId: number) => 
-    api.delete(`/platform-admin/users/${userId}`),
-  retrainModel: (modelName: string) => 
-    api.post(`/platform-admin/ai/retrain/${modelName}`),
-  updateModelSettings: (modelName: string, params: any) => 
-    api.post(`/platform-admin/ai/settings/${modelName}`, params),
-  exportAnalyticsReport: () => 
-    api.get('/platform-admin/analytics/export'),
-  getStrategicGoals: () => 
-    api.get('/platform-admin/analytics/goals'),
-  getEscalationAudit: (id: number) => 
-    api.get(`/platform-admin/escalations/${id}/audit`),
+  // Overview
+  getOverview: () => api.get('/platform-admin/overview'),
+  // Organizations
+  listOrganizations: () => api.get('/platform-admin/organizations'),
+  // Hospitals
+  listHospitals: () => api.get('/platform-admin/hospitals'),
+  createHospital: (data: any) => api.post('/platform-admin/hospitals', data),
+  updateHospital: (hospitalId: number, data: any) => api.patch(`/platform-admin/hospitals/${hospitalId}`, data),
+  deleteHospital: (hospitalId: number) => api.delete(`/platform-admin/hospitals/${hospitalId}`),
+  getRegionalStats: () => api.get('/platform-admin/hospitals/regional'),
+  // Users & Roles
+  listGlobalUsers: () => api.get('/platform-admin/users'),
+  provisionUser: (data: any) => api.post('/platform-admin/users', data),
+  updateUser: (userId: number, data: any) => api.patch(`/platform-admin/users/${userId}`, data),
+  updateUserStatus: (userId: number, status: string) => api.patch(`/platform-admin/users/${userId}/status`, { status }),
+  deleteUser: (userId: number) => api.delete(`/platform-admin/users/${userId}`),
+  // AI Control Center
+  getAIControl: () => api.get('/platform-admin/ai/control'),
+  getAiMetrics: () => api.get('/platform-admin/ai-metrics'),
+  retrainModel: (modelName: string) => api.post(`/platform-admin/ai/retrain/${modelName}`),
+  updateModelSettings: (modelName: string, params: any) => api.post(`/platform-admin/ai/settings/${modelName}`, params),
+  // Analytics
+  getGlobalAnalytics: () => api.get('/platform-admin/global-analytics'),
+  exportAnalyticsReport: () => api.get('/platform-admin/analytics/export'),
+  getStrategicGoals: () => api.get('/platform-admin/analytics/goals'),
+  // Escalations
+  getGlobalEscalations: () => api.get('/platform-admin/global-escalations'),
+  getEscalationAudit: (id: number) => api.get(`/platform-admin/escalations/${id}/audit`),
+  // Billing
+  getBillingData: () => api.get('/platform-admin/billing'),
+  // Infrastructure
+  getInfrastructure: () => api.get('/platform-admin/infrastructure'),
+  // Security & Compliance
+  getSecurity: () => api.get('/platform-admin/security'),
+  // Communication Center
+  getCommunication: () => api.get('/platform-admin/communication'),
+  createAnnouncement: (data: { title: string; content: string; target?: string }) => api.post('/platform-admin/communication/announce', data),
+  // Audit Logs
+  getAuditLogs: (limit?: number) => api.get('/platform-admin/audit-logs', { params: limit ? { limit } : {} }),
+  // Integrations
+  getIntegrations: () => api.get('/platform-admin/integrations'),
+  // Support & Tickets
+  getSupportTickets: () => api.get('/platform-admin/support'),
+  createSupportTicket: (data: { subject: string; description: string; priority?: string }) => api.post('/platform-admin/support', data),
+  // Reports
+  getReports: () => api.get('/platform-admin/reports'),
+  // Settings
+  getSettings: () => api.get('/platform-admin/settings'),
+  updateSettings: (data: any) => api.put('/platform-admin/settings', data),
 };

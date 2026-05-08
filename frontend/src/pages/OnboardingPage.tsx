@@ -53,7 +53,7 @@ export default function OnboardingPage() {
       const { data } = await profileService.create(form);
       setProfile(data);
       toast.success('Profile created! Your journey begins 🌟');
-      navigate('/dashboard');
+      navigate('/patient');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Failed to create profile');
     } finally {

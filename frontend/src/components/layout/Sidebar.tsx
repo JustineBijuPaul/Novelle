@@ -13,15 +13,35 @@ import { useAppStore } from '../../stores/appStore';
 import { cn } from '../../utils/helpers';
 
 const userNavItems = [
-  { path: '/dashboard', label: 'Dashboard', icon: Home },
-  { path: '/health-log', label: 'Health Log', icon: Activity },
-  { path: '/mental-health', label: 'Mental Health', icon: Brain },
-  { path: '/risk-report', label: 'Risk Report', icon: AlertTriangle },
-  { path: '/companion', label: 'AI Companion', icon: MessageCircle },
-  { path: '/journal', label: 'Journal', icon: BookOpen },
-  { path: '/baby-growth', label: 'Baby Growth', icon: Baby },
-  { path: '/hospitals', label: 'Hospitals', icon: MapPin },
-  { path: '/reminders', label: 'Reminders', icon: Bell },
+  // OVERVIEW
+  { path: '/patient', label: 'Dashboard', icon: Home, category: 'OVERVIEW' },
+  { path: '/patient/my-pregnancy', label: 'My Pregnancy', icon: Baby, category: 'OVERVIEW' },
+  { path: '/patient/ai-insights', label: 'AI Insights', icon: Sparkles, category: 'OVERVIEW' },
+  
+  // HEALTH TRACKING
+  { path: '/patient/health-log', label: 'Health Log', icon: Activity, category: 'HEALTH TRACKING' },
+  { path: '/patient/mental-health', label: 'Mental Health', icon: Brain, category: 'HEALTH TRACKING' },
+  { path: '/patient/symptoms', label: 'Symptoms', icon: Stethoscope, category: 'HEALTH TRACKING' },
+  { path: '/patient/baby-growth', label: 'Baby Growth', icon: Baby, category: 'HEALTH TRACKING' },
+  
+  // CARE & SUPPORT
+  { path: '/patient/appointments', label: 'Appointments', icon: Calendar, category: 'CARE & SUPPORT' },
+  { path: '/patient/teleconsultation', label: 'Teleconsultation', icon: Video, category: 'CARE & SUPPORT' },
+  { path: '/patient/messages', label: 'Messages', icon: MessageSquare, category: 'CARE & SUPPORT' },
+  { path: '/patient/hospitals', label: 'Hospitals', icon: MapPin, category: 'CARE & SUPPORT' },
+  
+  // WELLNESS
+  { path: '/patient/journal', label: 'Journal', icon: BookOpen, category: 'WELLNESS' },
+  { path: '/patient/wellness-hub', label: 'Wellness Hub', icon: GraduationCap, category: 'WELLNESS' },
+  { path: '/patient/daily-goals', label: 'Daily Goals', icon: ListTodo, category: 'WELLNESS' },
+  
+  // SAFETY
+  { path: '/patient/risk-report', label: 'Risk Reports', icon: Shield, category: 'SAFETY' },
+  { path: '/patient/emergency-support', label: 'Emergency Support', icon: ShieldAlert, category: 'SAFETY' },
+  { path: '/patient/reminders', label: 'Reminders', icon: Bell, category: 'SAFETY' },
+  
+  // ACCOUNT
+  { path: '/patient/settings', label: 'Settings', icon: SettingsIcon, category: 'ACCOUNT' },
 ];
 
 const doctorNavItems = [
@@ -89,7 +109,7 @@ export default function Sidebar() {
   const location = useLocation();
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const { sidebarOpen, toggleSidebar, activePatientData } = useAppStore();
+  const { sidebarOpen, toggleSidebar, activePatientData, profile } = useAppStore();
 
   const handleAction = (action: string) => {
     console.log(`Sidebar Action: ${action}`);
@@ -140,7 +160,7 @@ export default function Sidebar() {
               user?.role === 'platform_admin' ? '/admin' :
               user?.role === 'doctor' ? '/doctor' : 
               user?.role === 'hospital_admin' ? '/hospital-admin' :
-              '/dashboard'
+              '/patient'
             } 
             className="flex items-center gap-2.5"
           >
@@ -263,6 +283,15 @@ export default function Sidebar() {
             </div>
           )}
 
+          {/* Patient-specific Enhancements */}
+          {(user?.role === 'pregnant_user' || user?.role === 'postpartum_user') && (
+            <div className="mt-4 space-y-4 pb-20">
+              <PregnancyProgressCard week={profile?.pregnancy_week || 24} />
+              <EmergencyStickyButton />
+              <AIAssistantWidget />
+            </div>
+          )}
+
           {/* Hospital Admin Live Status */}
           {user?.role === 'hospital_admin' && (
             <div className="px-3 mt-8 pb-20">
@@ -298,6 +327,61 @@ export default function Sidebar() {
         </div>
       </aside>
     </>
+  );
+}
+
+function PregnancyProgressCard({ week }: { week: number }) {
+  const progress = (week / 40) * 100;
+  const trimester = week <= 12 ? 'First' : week <= 27 ? 'Second' : 'Third';
+  return (
+    <div className="mx-3 mt-4 p-4 rounded-2xl bg-gradient-to-br from-primary-500 to-primary-700 text-white shadow-lg shadow-primary-200">
+      <div className="flex justify-between items-start mb-3">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wider opacity-80">Pregnancy Progress</p>
+          <h3 className="text-xl font-display font-bold">Week {week} of 40</h3>
+        </div>
+        <div className="p-2 bg-white/20 rounded-lg backdrop-blur-sm">
+          <Baby className="w-5 h-5 text-white" />
+        </div>
+      </div>
+      <div className="space-y-2">
+        <div className="h-1.5 bg-white/20 rounded-full overflow-hidden">
+          <div className="h-full bg-white shadow-[0_0_10px_rgba(255,255,255,0.5)] transition-all duration-500" style={{ width: `${progress}%` }} />
+        </div>
+        <div className="flex justify-between text-[10px] font-medium">
+          <span>{trimester} Trimester</span>
+          <span>{40 - week} weeks to go</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function EmergencyStickyButton() {
+  return (
+    <button className="flex items-center justify-center gap-2 w-[calc(100%-24px)] mx-3 mt-4 px-4 py-3 bg-red-50 text-red-600 rounded-xl border border-red-100 font-bold text-sm hover:bg-red-100 transition-colors shadow-sm">
+      <ShieldAlert className="w-5 h-5" />
+      🚨 Emergency Support
+    </button>
+  );
+}
+
+function AIAssistantWidget() {
+  return (
+    <div className="mx-3 mt-4 p-4 rounded-2xl bg-gray-900 text-white">
+      <div className="flex items-center gap-3 mb-3">
+        <div className="w-8 h-8 rounded-lg bg-primary-500 flex items-center justify-center">
+          <Sparkles className="w-4 h-4 text-white" />
+        </div>
+        <div>
+          <p className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">Novelle AI</p>
+          <p className="text-xs font-medium">Need help today?</p>
+        </div>
+      </div>
+      <button className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-[11px] font-bold transition-colors">
+        Ask AI Assistant
+      </button>
+    </div>
   );
 }
 

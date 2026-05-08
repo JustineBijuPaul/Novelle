@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
@@ -10,6 +10,7 @@ import {
   Bot,
   Calendar,
   CheckCircle2,
+  ChevronDown,
   Clock,
   Download,
   Eye,
@@ -23,22 +24,26 @@ import {
   NotebookPen,
   PhoneCall,
   Pill,
+  Plus,
+  RefreshCw,
   Search,
   Send,
   Settings,
   ShieldAlert,
   Sparkles,
   Stethoscope,
-  Target,
   TrendingUp,
   Users,
   Video,
-  RefreshCw,
+  X,
 } from 'lucide-react';
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
   ResponsiveContainer,
@@ -52,7 +57,9 @@ import type { Escalation, PatientDashboardData } from '../types';
 import PatientDetailDashboard from '../components/doctor/PatientDetailDashboard';
 import { useAppStore } from '../stores/appStore';
 
-type DoctorSectionId =
+// ─── Types ───────────────────────────────────────────────────────────
+
+type ViewId =
   | 'dashboard'
   | 'patients'
   | 'appointments'
@@ -86,243 +93,248 @@ interface PatientSummary {
   latest_risk?: PatientRisk;
 }
 
-const doctorSections: Array<{
-  id: DoctorSectionId;
-  label: string;
-  icon: typeof LayoutDashboard;
-  summary: string;
-  submenu: string[];
-}> = [
-  { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, summary: 'Command center overview with KPIs, alerts, and next actions.', submenu: ['KPI Cards', 'Risk Overview', 'Recent Activity', 'Upcoming Consultations', 'Emergency Alerts'] },
-  { id: 'patients', label: 'Patients', icon: Users, summary: 'Assigned patients, risk queues, and pregnancy tracking.', submenu: ['All Patients', 'High Risk', 'New Patients', 'Pregnancy Tracking', 'Postpartum Care', 'Discharged Patients'] },
-  { id: 'appointments', label: 'Appointments', icon: Calendar, summary: 'Schedule, follow-up, calendar, missed visits, and teleconsultations.', submenu: ["Today's Appointments", 'Upcoming', 'Calendar', 'Missed Appointments', 'Teleconsultations'] },
-  { id: 'escalations', label: 'Escalations', icon: ShieldAlert, summary: 'AI-generated and manual escalations with triage controls.', submenu: ['Pending', 'Urgent Cases', 'Resolved', 'Escalation History'] },
-  { id: 'monitoring', label: 'Monitoring', icon: HeartPulse, summary: 'Vitals, fetal trends, mental health, and device sync.', submenu: ['Vitals Monitoring', 'Fetal Monitoring', 'Mental Health', 'Device Sync', 'Trend Analysis'] },
-  { id: 'clinical-notes', label: 'Clinical Notes', icon: NotebookPen, summary: 'SOAP notes, consultation notes, follow-ups, and templates.', submenu: ['SOAP Notes', 'Consultation Notes', 'Follow-up Notes', 'Templates', 'Drafts'] },
-  { id: 'prescriptions', label: 'Prescriptions', icon: Pill, summary: 'Medication management, interaction alerts, and refills.', submenu: ['Create Prescription', 'Medication History', 'Refills', 'Drug Interactions'] },
-  { id: 'telehealth', label: 'Telehealth', icon: Video, summary: 'Video sessions, chat consults, waiting room, and session history.', submenu: ['Video Sessions', 'Chat Consultations', 'Session History', 'Waiting Room'] },
-  { id: 'ai-copilot', label: 'AI Copilot', icon: Bot, summary: 'Patient summaries, risk analysis, recommendations, and explainability.', submenu: ['Patient Summaries', 'Risk Analysis', 'AI Recommendations', 'Predictive Insights', 'Explainable AI'] },
-  { id: 'reports', label: 'Reports', icon: FileBarChart, summary: 'Patient, pregnancy, escalation, and treatment reports.', submenu: ['Patient Reports', 'Pregnancy Reports', 'Escalation Reports', 'Treatment Reports', 'Exports'] },
-  { id: 'communication', label: 'Communication', icon: MessageSquare, summary: 'Secure patient messaging, internal coordination, and announcements.', submenu: ['Patient Messages', 'Internal Chat', 'Announcements', 'Notifications'] },
-  { id: 'tasks', label: 'Tasks', icon: ListTodo, summary: 'Follow-ups, review requests, and workflow prioritization.', submenu: ['Pending Tasks', 'Follow-ups', 'Review Requests', 'Completed Tasks'] },
-  { id: 'settings', label: 'Settings', icon: Settings, summary: 'Profile, availability, notifications, and security.', submenu: ['Profile', 'Availability', 'Notification Settings', 'Security', 'Preferences'] },
-];
+// ─── Path → View mapping ─────────────────────────────────────────────
 
-const topMetrics = [
-  { key: 'total_patients', label: 'Assigned Patients', icon: Users, color: 'from-cyan-500 to-blue-500' },
-  { key: 'high_risk', label: 'High-Risk Patients', icon: AlertTriangle, color: 'from-rose-500 to-red-500' },
-  { key: 'pending', label: 'Pending Escalations', icon: ShieldAlert, color: 'from-amber-500 to-orange-500' },
-  { key: 'today_appointments', label: "Today's Appointments", icon: Calendar, color: 'from-violet-500 to-fuchsia-500' },
-  { key: 'followups_due', label: 'Follow-ups Due', icon: Target, color: 'from-emerald-500 to-teal-500' },
-  { key: 'ai_insights', label: 'AI Insights', icon: Sparkles, color: 'from-slate-700 to-slate-900' },
-];
+function resolveView(pathname: string): ViewId {
+  const segment = pathname.replace(/\/+$/, '').split('/').pop() || '';
+  const map: Record<string, ViewId> = {
+    patients: 'patients',
+    appointments: 'appointments',
+    escalations: 'escalations',
+    monitoring: 'monitoring',
+    'clinical-notes': 'clinical-notes',
+    prescriptions: 'prescriptions',
+    telehealth: 'telehealth',
+    'ai-copilot': 'ai-copilot',
+    reports: 'reports',
+    communication: 'communication',
+    tasks: 'tasks',
+    settings: 'settings',
+  };
+  return map[segment] ?? 'dashboard';
+}
 
-const patientFilters = ['All Patients', 'High Risk', 'New Patients', 'Pregnancy Tracking', 'Postpartum Care', 'Discharged Patients'];
-const appointmentFilters = ["Today's Appointments", 'Upcoming', 'Calendar', 'Missed Appointments', 'Teleconsultations'];
-const escalationFilters = ['Pending', 'Urgent Cases', 'Resolved', 'Escalation History'];
-const monitoringFilters = ['Vitals Monitoring', 'Fetal Monitoring', 'Mental Health', 'Device Sync', 'Trend Analysis'];
-
-const dashboardTrend = [
-  { label: 'Mon', risk: 48, alerts: 4 },
-  { label: 'Tue', risk: 54, alerts: 6 },
-  { label: 'Wed', risk: 61, alerts: 8 },
-  { label: 'Thu', risk: 58, alerts: 7 },
-  { label: 'Fri', risk: 66, alerts: 9 },
-  { label: 'Sat', risk: 63, alerts: 6 },
-  { label: 'Sun', risk: 70, alerts: 10 },
-];
-
-const vitalsTrend = [
-  { label: 'W1', systolic: 118, diastolic: 76, glucose: 92, mood: 7 },
-  { label: 'W2', systolic: 122, diastolic: 79, glucose: 95, mood: 7 },
-  { label: 'W3', systolic: 128, diastolic: 82, glucose: 101, mood: 6 },
-  { label: 'W4', systolic: 131, diastolic: 84, glucose: 109, mood: 6 },
-  { label: 'W5', systolic: 136, diastolic: 86, glucose: 116, mood: 5 },
-  { label: 'W6', systolic: 142, diastolic: 90, glucose: 124, mood: 4 },
-];
-
-const activityFeed = [
-  { title: 'BP reading uploaded for Aisha Khan', time: '4 min ago', kind: 'Vitals update' },
-  { title: 'Escalation resolved for Meera Nair', time: '18 min ago', kind: 'Escalation' },
-  { title: 'Medication adherence reminder sent', time: '41 min ago', kind: 'Communication' },
-  { title: 'Telehealth session started with Priya S.', time: '1 hour ago', kind: 'Telehealth' },
-];
-
-const quickActions = [
-  { label: 'Add Note', icon: NotebookPen },
-  { label: 'Prescribe Medicine', icon: Pill },
-  { label: 'Start Video Call', icon: Video },
-  { label: 'Escalate Case', icon: ShieldAlert },
-  { label: 'Generate Report', icon: FileBarChart },
-];
-
-const sampleAppointments = [
-  { time: '08:30', patient: 'Ananya Patel', reason: 'BP review', status: 'Teleconsultation' },
-  { time: '09:45', patient: 'Fatima Ali', reason: 'Growth scan follow-up', status: 'In-person' },
-  { time: '11:10', patient: 'Sana Roy', reason: 'Mental health check-in', status: 'Follow-up' },
-  { time: '14:00', patient: 'Riya Menon', reason: 'Medication review', status: 'Teleconsultation' },
-];
-
-const sampleTasks = [
-  { title: 'Review 3 urgent escalations', priority: 'high', due: 'Now' },
-  { title: 'Approve follow-up schedule', priority: 'medium', due: 'Today' },
-  { title: 'Send postnatal discharge summary', priority: 'low', due: 'Tomorrow' },
-  { title: 'Check medication interaction alert', priority: 'high', due: 'Today' },
-];
-
-const sampleMessages = [
-  { from: 'Aisha Khan', text: 'I uploaded my BP readings for this morning.', time: '2 min ago', channel: 'Patient Message' },
-  { from: 'Nurse Team', text: 'Waiting room has 2 patients ready for triage.', time: '12 min ago', channel: 'Internal Chat' },
-  { from: 'Hospital Admin', text: 'Emergency broadcast acknowledged by OB team.', time: '1 hour ago', channel: 'Announcement' },
-];
-
-const sampleReports = [
-  { title: 'Patient Reports', desc: 'Export assigned patient summaries and risk snapshots.' },
-  { title: 'Pregnancy Reports', desc: 'Generate trimester timelines and fetal monitoring summaries.' },
-  { title: 'Escalation Reports', desc: 'Review pending, urgent, and resolved escalations.' },
-  { title: 'Treatment Reports', desc: 'Share notes, prescriptions, and compliance history.' },
-];
-
-const sampleSettings = [
-  { title: 'Availability', desc: 'Morning clinic, afternoon telehealth, emergency on-call.' },
-  { title: 'Notifications', desc: 'Critical alerts, new messages, escalation follow-ups.' },
-  { title: 'Security', desc: 'MFA enabled, session timeout, secure clinical access.' },
-  { title: 'Preferences', desc: 'Explainability level: high, compact patient summaries.' },
-];
+// ─── Main Component ──────────────────────────────────────────────────
 
 export default function DoctorDashboardPage() {
   const location = useLocation();
+  const activeView = useMemo(() => resolveView(location.pathname), [location.pathname]);
+
+  return (
+    <div className="space-y-6 pb-14 animate-fade-in">
+      <AnimatePresence mode="wait">
+        <motion.div
+          key={activeView}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          exit={{ opacity: 0, y: -8 }}
+          transition={{ duration: 0.2 }}
+        >
+          {activeView === 'dashboard' && <DashboardView />}
+          {activeView === 'patients' && <PatientsView />}
+          {activeView === 'appointments' && <AppointmentsView />}
+          {activeView === 'escalations' && <EscalationsView />}
+          {activeView === 'monitoring' && <MonitoringView />}
+          {activeView === 'clinical-notes' && <ClinicalNotesView />}
+          {activeView === 'prescriptions' && <PrescriptionsView />}
+          {activeView === 'telehealth' && <TelehealthView />}
+          {activeView === 'ai-copilot' && <AICopilotView />}
+          {activeView === 'reports' && <ReportsView />}
+          {activeView === 'communication' && <CommunicationView />}
+          {activeView === 'tasks' && <TasksView />}
+          {activeView === 'settings' && <SettingsView />}
+        </motion.div>
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  1. DASHBOARD VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function DashboardView() {
   const navigate = useNavigate();
-  const { setActivePatientData } = useAppStore();
+  const [loading, setLoading] = useState(true);
   const [patients, setPatients] = useState<PatientSummary[]>([]);
   const [escalations, setEscalations] = useState<Escalation[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [selectedPatient, setSelectedPatient] = useState<number | null>(null);
-  const [predictions, setPredictions] = useState<PatientDashboardData | null>(null);
-  const [loadingPredictions, setLoadingPredictions] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [activeSection, setActiveSection] = useState<DoctorSectionId>('dashboard');
   const [stats, setStats] = useState({
     total_patients: 0,
     high_risk: 0,
     pending: 0,
-    resolved: 0,
     today_appointments: 0,
-    followups_due: 0,
-    ai_insights: 0,
   });
 
-
-  const selectedSection = useMemo(() => {
-    if (location.hash) {
-      const section = location.hash.replace('#', '') as DoctorSectionId;
-      if (doctorSections.some((item) => item.id === section)) return section;
-    }
-    if (location.pathname.endsWith('/escalations')) return 'escalations';
-    if (location.pathname.endsWith('/appointments')) return 'appointments';
-    if (location.pathname.endsWith('/monitoring')) return 'monitoring';
-    if (location.pathname.endsWith('/clinical-notes')) return 'clinical-notes';
-    if (location.pathname.endsWith('/prescriptions')) return 'prescriptions';
-    if (location.pathname.endsWith('/telehealth')) return 'telehealth';
-    if (location.pathname.endsWith('/ai-copilot')) return 'ai-copilot';
-    if (location.pathname.endsWith('/reports')) return 'reports';
-    if (location.pathname.endsWith('/communication')) return 'communication';
-    if (location.pathname.endsWith('/tasks')) return 'tasks';
-    if (location.pathname.endsWith('/settings')) return 'settings';
-    if (location.pathname.endsWith('/patients')) return 'patients';
-    return activeSection;
-  }, [activeSection, location.hash, location.pathname]);
-
   useEffect(() => {
-    loadData();
+    (async () => {
+      try {
+        const [dashRes, escRes] = await Promise.allSettled([
+          doctorService.getDashboard(),
+          escalationService.list(),
+        ]);
+        if (dashRes.status === 'fulfilled') {
+          const d = dashRes.value.data || {};
+          setPatients(d.patients || []);
+          setStats({
+            total_patients: d.stats?.total_patients ?? d.patients?.length ?? 0,
+            high_risk: d.stats?.high_risk ?? 0,
+            pending: d.stats?.pending ?? 0,
+            today_appointments: d.stats?.today_appointments ?? 0,
+          });
+        }
+        if (escRes.status === 'fulfilled') setEscalations(escRes.value.data || []);
+      } finally {
+        setLoading(false);
+      }
+    })();
   }, []);
 
+  if (loading) return <ViewSkeleton />;
+
+  const highRisk = patients.filter((p) =>
+    [p.latest_risk?.mental_risk_level, p.latest_risk?.physical_risk_level, p.latest_risk?.fetal_risk_level]
+      .some((l) => String(l).toUpperCase() === 'HIGH'),
+  );
+  const pendingEscalations = escalations.filter((e) => e.status === 'pending');
+
+  const metrics = [
+    { label: 'Assigned Patients', value: stats.total_patients, icon: Users, gradient: 'from-cyan-500 to-blue-500' },
+    { label: 'High-Risk', value: stats.high_risk || highRisk.length, icon: AlertTriangle, gradient: 'from-rose-500 to-red-500' },
+    { label: 'Pending Escalations', value: stats.pending || pendingEscalations.length, icon: ShieldAlert, gradient: 'from-amber-500 to-orange-500' },
+    { label: "Today's Appts", value: stats.today_appointments, icon: Calendar, gradient: 'from-violet-500 to-fuchsia-500' },
+  ];
+
+  return (
+    <SectionShell icon={LayoutDashboard} title="Dashboard" subtitle="Command center overview">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {metrics.map((m) => (
+          <StatCard key={m.label} label={m.label} value={m.value} icon={m.icon} gradient={m.gradient} />
+        ))}
+      </div>
+
+      <div className="mt-6 grid gap-6 xl:grid-cols-[1.5fr_1fr]">
+        {/* High-risk patients */}
+        <Card>
+          <CardHeader title="High-Risk Patients" badge={`${highRisk.length} flagged`} />
+          {highRisk.length === 0 ? (
+            <EmptyState icon={Users} message="No high-risk patients currently." />
+          ) : (
+            <div className="space-y-2">
+              {highRisk.slice(0, 6).map((p) => (
+                <button
+                  key={p.user_id}
+                  onClick={() => navigate('/doctor/patients')}
+                  className="flex w-full items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3 text-left transition-colors hover:border-rose-200 hover:bg-rose-50/40"
+                >
+                  <div>
+                    <p className="text-sm font-semibold text-slate-900">{p.name}</p>
+                    <p className="text-xs text-slate-500">Week {p.pregnancy_week ?? '--'} · {p.city || p.email}</p>
+                  </div>
+                  <RiskPill level="HIGH" />
+                </button>
+              ))}
+            </div>
+          )}
+        </Card>
+
+        {/* Pending escalations */}
+        <Card className="bg-gradient-to-br from-slate-950 to-slate-900 text-white">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white">Pending Escalations</h3>
+            <ShieldAlert className="h-4 w-4 text-rose-300" />
+          </div>
+          {pendingEscalations.length === 0 ? (
+            <p className="text-sm text-slate-400">All escalations resolved.</p>
+          ) : (
+            <div className="space-y-3">
+              {pendingEscalations.slice(0, 4).map((esc) => (
+                <div key={esc.id} className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                  <div className="flex items-center justify-between">
+                    <span className="rounded-full bg-rose-500/20 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-rose-300">
+                      {esc.severity || esc.risk_level}
+                    </span>
+                    <span className="text-[10px] text-slate-400">{formatDate(esc.created_at || esc.triggered_at)}</span>
+                  </div>
+                  <p className="mt-2 text-sm leading-relaxed text-slate-200">{esc.escalation_reason || esc.reason}</p>
+                </div>
+              ))}
+              <button
+                onClick={() => navigate('/doctor/escalations')}
+                className="flex w-full items-center justify-center gap-2 rounded-2xl border border-white/10 bg-white/5 py-3 text-sm font-semibold text-cyan-200 transition-colors hover:bg-white/10"
+              >
+                View all escalations <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+        </Card>
+      </div>
+
+      {/* Quick actions */}
+      <div className="mt-6 grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+        {[
+          { label: 'Patients', icon: Users, path: '/doctor/patients' },
+          { label: 'Appointments', icon: Calendar, path: '/doctor/appointments' },
+          { label: 'Escalations', icon: ShieldAlert, path: '/doctor/escalations' },
+          { label: 'AI Copilot', icon: Bot, path: '/doctor/ai-copilot' },
+          { label: 'Telehealth', icon: Video, path: '/doctor/telehealth' },
+        ].map((a) => (
+          <motion.button
+            key={a.label}
+            whileHover={{ y: -2 }}
+            onClick={() => navigate(a.path)}
+            className="card flex items-center gap-3 border-slate-200 p-4 transition-all hover:border-primary-200 hover:shadow-md"
+          >
+            <div className="rounded-xl bg-primary-50 p-2.5 text-primary-600">
+              <a.icon className="h-4 w-4" />
+            </div>
+            <span className="text-sm font-semibold text-slate-900">{a.label}</span>
+          </motion.button>
+        ))}
+      </div>
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  2. PATIENTS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function PatientsView() {
+  const { setActivePatientData } = useAppStore();
+  const [loading, setLoading] = useState(true);
+  const [patients, setPatients] = useState<PatientSummary[]>([]);
+  const [search, setSearch] = useState('');
+  const [riskFilter, setRiskFilter] = useState<string>('all');
+  const [selectedPatient, setSelectedPatient] = useState<number | null>(null);
+  const [predictions, setPredictions] = useState<PatientDashboardData | null>(null);
+  const [loadingPredictions, setLoadingPredictions] = useState(false);
+
   useEffect(() => {
-    const sectionFromHash = location.hash.replace('#', '') as DoctorSectionId;
-    const validSection = doctorSections.some((item) => item.id === sectionFromHash) ? sectionFromHash : null;
-
-    if (validSection) {
-      setActiveSection(validSection);
-      window.requestAnimationFrame(() => {
-        document.getElementById(validSection)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      });
-      return;
-    }
-
-    if (location.pathname.endsWith('/escalations')) {
-      setActiveSection('escalations');
-    } else if (location.pathname.endsWith('/appointments')) {
-      setActiveSection('appointments');
-    } else if (location.pathname.endsWith('/monitoring')) {
-      setActiveSection('monitoring');
-    } else if (location.pathname.endsWith('/clinical-notes')) {
-      setActiveSection('clinical-notes');
-    } else if (location.pathname.endsWith('/prescriptions')) {
-      setActiveSection('prescriptions');
-    } else if (location.pathname.endsWith('/telehealth')) {
-      setActiveSection('telehealth');
-    } else if (location.pathname.endsWith('/ai-copilot')) {
-      setActiveSection('ai-copilot');
-    } else if (location.pathname.endsWith('/reports')) {
-      setActiveSection('reports');
-    } else if (location.pathname.endsWith('/communication')) {
-      setActiveSection('communication');
-    } else if (location.pathname.endsWith('/tasks')) {
-      setActiveSection('tasks');
-    } else if (location.pathname.endsWith('/settings')) {
-      setActiveSection('settings');
-    } else if (location.pathname.endsWith('/patients')) {
-      setActiveSection('patients');
-    } else {
-      setActiveSection('dashboard');
-    }
-  }, [location.hash, location.pathname]);
-
-  const loadData = async () => {
-    try {
-      const [dashboardRes, escalationRes] = await Promise.allSettled([doctorService.getDashboard(), escalationService.list()]);
-
-      if (dashboardRes.status === 'fulfilled') {
-        const payload = dashboardRes.value.data || {};
-        setPatients(payload.patients || []);
-        setStats((prev) => ({
-          ...prev,
-          ...payload.stats,
-          total_patients: payload.stats?.total_patients ?? payload.patients?.length ?? prev.total_patients,
-          high_risk: payload.stats?.high_risk ?? prev.high_risk,
-          pending: payload.stats?.pending ?? prev.pending,
-          resolved: payload.stats?.resolved ?? prev.resolved,
-          today_appointments: payload.stats?.today_appointments ?? prev.today_appointments,
-          followups_due: payload.stats?.followups_due ?? prev.followups_due,
-          ai_insights: payload.stats?.ai_insights ?? prev.ai_insights,
-        }));
+    (async () => {
+      try {
+        const res = await doctorService.getDashboard();
+        setPatients(res.data?.patients || []);
+      } finally {
+        setLoading(false);
       }
+    })();
+  }, []);
 
-      if (escalationRes.status === 'fulfilled') {
-        setEscalations(escalationRes.value.data || []);
-      }
-    } catch {
-      // keep dashboard usable with local fallback data
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const openPatient = async (patientId: number) => {
-    setSelectedPatient(patientId);
+  const openPatient = async (id: number) => {
+    setSelectedPatient(id);
     setLoadingPredictions(true);
     try {
-      const res = await doctorService.getPatientPredictions(patientId);
+      const res = await doctorService.getPatientPredictions(id);
       setPredictions(res.data);
       setActivePatientData(res.data);
-    } catch (error) {
-      console.error('Failed to load patient predictions:', error);
+    } catch (err) {
+      console.error('Failed to load predictions:', err);
     } finally {
       setLoadingPredictions(false);
     }
   };
 
-  const closePatientFocus = () => {
+  const closePatient = () => {
     setSelectedPatient(null);
     setPredictions(null);
     setActivePatientData(null);
@@ -340,517 +352,127 @@ export default function DoctorDashboardPage() {
     await openPatient(selectedPatient);
   };
 
-  const resolveEscalation = async (id: string) => {
-    await escalationService.resolve(id, { status: 'resolved', notes: 'Reviewed and resolved by doctor' });
-    setEscalations((prev) => prev.map((item) => (item.id === id ? { ...item, status: 'resolved' } : item)));
-  };
-
-  const visiblePatients = patients.filter((patient) => {
-    const query = searchQuery.trim().toLowerCase();
-    if (!query) return true;
-    return [patient.name, patient.email, patient.city, patient.trimester, patient.latest_risk?.crisis_flag]
-      .filter(Boolean)
-      .some((value) => String(value).toLowerCase().includes(query));
+  const filtered = patients.filter((p) => {
+    const q = search.trim().toLowerCase();
+    const matchesSearch = !q || [p.name, p.email, p.city, p.trimester].filter(Boolean).some((v) => String(v).toLowerCase().includes(q));
+    if (!matchesSearch) return false;
+    if (riskFilter === 'all') return true;
+    const levels = [p.latest_risk?.mental_risk_level, p.latest_risk?.physical_risk_level, p.latest_risk?.fetal_risk_level];
+    return levels.some((l) => String(l).toUpperCase() === riskFilter);
   });
 
-  const pendingEscalations = escalations.filter((item) => item.status === 'pending');
-  const urgentEscalations = escalations.filter((item) => ['urgent', 'HIGH', 'URGENT'].includes(String(item.severity || item.risk_level).toUpperCase()));
-  const highRiskPatients = visiblePatients.filter((item) =>
-    [item.latest_risk?.mental_risk_level, item.latest_risk?.physical_risk_level, item.latest_risk?.fetal_risk_level].some((level) => String(level).toUpperCase() === 'HIGH')
-  );
-
-  const summaryStats = {
-    totalPatients: stats.total_patients || patients.length,
-    highRiskPatients: stats.high_risk || highRiskPatients.length,
-    pendingEscalations: stats.pending || pendingEscalations.length,
-    todayAppointments: stats.today_appointments || 8,
-    followupsDue: stats.followups_due || 6,
-    aiInsights: stats.ai_insights || 12,
-  };
-
-  const activeSectionMeta = doctorSections.find((item) => item.id === selectedSection) || doctorSections[0];
-
-  if (loading) {
-    return (
-      <div className="flex min-h-[60vh] items-center justify-center">
-        <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1.2, ease: 'linear' }}>
-          <Stethoscope className="h-12 w-12 text-primary-500" />
-        </motion.div>
-      </div>
-    );
-  }
+  if (loading) return <ViewSkeleton />;
 
   return (
     <>
-      <div className="space-y-8 pb-14 animate-fade-in">
-        {selectedSection === 'dashboard' && (
-        <SectionShell id="dashboard" icon={LayoutDashboard} title="Dashboard" description={activeSectionMeta.summary} submenu={doctorSections[0].submenu}>
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-6">
-            {topMetrics.map((metric) => (
-              <StatCard
-                key={metric.key}
-                label={metric.label}
-                value={summaryStats[metric.key as keyof typeof summaryStats]}
-                icon={metric.icon}
-                gradient={metric.color}
-              />
-            ))}
+      <SectionShell icon={Users} title="Patients" subtitle="Assigned patients and risk queues">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="relative flex-1 max-w-md">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search patients..."
+              className="w-full rounded-2xl border border-slate-200 bg-white py-2.5 pl-10 pr-4 text-sm outline-none transition-colors focus:border-primary-400"
+            />
           </div>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.6fr_1fr]">
-            <div className="card overflow-hidden border-slate-200 bg-gradient-to-br from-white to-cyan-50/50">
-              <div className="mb-5 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Risk Overview</h3>
-                  <p className="mt-1 text-xs text-slate-500">Activity, alerts, and follow-up load over the past 7 days.</p>
-                </div>
-                <span className="inline-flex items-center gap-1 rounded-full bg-slate-900 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-white">
-                  <TrendingUp className="h-3 w-3" /> Weekly trend
-                </span>
-              </div>
-              <div className="h-72">
-                <ResponsiveContainer width="100%" height="100%">
-                  <AreaChart data={dashboardTrend}>
-                    <defs>
-                      <linearGradient id="riskGradient" x1="0" y1="0" x2="0" y2="1">
-                        <stop offset="5%" stopColor="#06b6d4" stopOpacity={0.35} />
-                        <stop offset="95%" stopColor="#06b6d4" stopOpacity={0.02} />
-                      </linearGradient>
-                    </defs>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                    <YAxis tick={{ fontSize: 11 }} stroke="#94a3b8" />
-                    <Tooltip />
-                    <Area type="monotone" dataKey="risk" stroke="#0891b2" fill="url(#riskGradient)" strokeWidth={3} />
-                    <Area type="monotone" dataKey="alerts" stroke="#f97316" fillOpacity={0} strokeWidth={2} />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="card overflow-hidden border-slate-200 bg-slate-950 text-white">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white">AI Clinical Summary</h3>
-                <span className="rounded-full bg-white/10 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-cyan-100">Explainable</span>
-              </div>
-              <div className="space-y-4">
-                <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
-                  <p className="text-xs text-slate-300">Current insight</p>
-                  <p className="mt-2 text-sm leading-6 text-white">
-                    Patient showing increasing BP trend with reduced sleep quality. Recommend review of antihypertensive adherence, repeat vitals, and follow-up within 24 hours.
-                  </p>
-                </div>
-                <div className="space-y-3">
-                  <InsightRow label="Most common trigger" value="Rising BP + missed logs" />
-                  <InsightRow label="Predictive signal" value="Escalation probability 0.78" />
-                  <InsightRow label="Next recommendation" value="Schedule urgent review" />
-                </div>
-                <div className="grid grid-cols-2 gap-3 pt-2">
-                  {quickActions.slice(0, 4).map((action) => (
-                    <button
-                      key={action.label}
-                      className="rounded-2xl border border-white/10 bg-white/5 px-3 py-3 text-left transition-all hover:bg-white/10"
-                      onClick={() => {
-                        if (action.label === 'Generate Report') {
-                              navigate('/doctor/reports');
-                        }
-                      }}
-                    >
-                      <action.icon className="h-4 w-4 text-cyan-200" />
-                      <p className="mt-2 text-xs font-semibold text-white">{action.label}</p>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-
-          <div className="mt-6 grid gap-6 xl:grid-cols-[1.2fr_1fr]">
-            <div className="card border-slate-200">
-              <div className="mb-4 flex items-center justify-between">
-                <div>
-                  <h3 className="text-sm font-bold text-slate-900">Recent Activity Feed</h3>
-                  <p className="mt-1 text-xs text-slate-500">Vitals, escalations, medication adherence, and appointment updates.</p>
-                </div>
-                <ArrowRight className="h-4 w-4 text-slate-400" />
-              </div>
-              <div className="space-y-3">
-                {activityFeed.map((item) => (
-                  <FeedItem key={item.title} {...item} />
-                ))}
-              </div>
-            </div>
-
-            <div className="card border-slate-200 bg-gradient-to-br from-emerald-50 to-white">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-900">Upcoming Consultations</h3>
-                <Calendar className="h-4 w-4 text-emerald-600" />
-              </div>
-              <div className="space-y-3">
-                {sampleAppointments.slice(0, 3).map((item) => (
-                  <AppointmentRow key={`${item.time}-${item.patient}`} {...item} />
-                ))}
-              </div>
-              <div className="mt-5 rounded-2xl bg-slate-950 p-4 text-white">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.3em] text-cyan-200">Emergency Alerts</p>
-                    <p className="mt-1 text-sm font-semibold">{urgentEscalations.length || 2} cases need immediate review</p>
-                  </div>
-                  <ShieldAlert className="h-5 w-5 text-rose-300" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'patients' && (
-        <SectionShell id="patients" icon={Users} title="Patients" description={doctorSections[1].summary} submenu={patientFilters}>
-          <div className="grid gap-6 xl:grid-cols-[1.4fr_0.9fr]">
-            <div className="space-y-4">
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
-                {visiblePatients.map((patient, index) => (
-                  <PatientCard key={patient.user_id} patient={patient} index={index} onClick={() => openPatient(patient.user_id)} />
-                ))}
-              </div>
-              {visiblePatients.length === 0 && <EmptyState icon={Users} message="No patients match the current search." />}
-            </div>
-
-            <div className="space-y-4">
-              <div className="card border-rose-100 bg-rose-50/60">
-                <h3 className="mb-3 text-sm font-bold text-rose-700">High-Risk Patient Queue</h3>
-                <div className="space-y-2">
-                  {(highRiskPatients.slice(0, 4).length ? highRiskPatients.slice(0, 4) : patients.slice(0, 4)).map((patient) => (
-                    <QueuePatient key={patient.user_id} patient={patient} onClick={() => openPatient(patient.user_id)} />
-                  ))}
-                </div>
-              </div>
-
-              <div className="card border-slate-200 bg-gradient-to-br from-white to-cyan-50/40">
-                <h3 className="mb-3 text-sm font-bold text-slate-900">Pregnancy Monitoring Widget</h3>
-                <div className="grid grid-cols-2 gap-3 text-sm">
-                  <MiniStat label="Trimester" value="Second" />
-                  <MiniStat label="Progress" value="64%" />
-                  <MiniStat label="Next Scan" value="3 days" />
-                  <MiniStat label="Milestones" value="4 upcoming" />
-                </div>
-                <div className="mt-4 rounded-2xl bg-white p-4 ring-1 ring-slate-200">
-                  <div className="flex items-center justify-between text-xs text-slate-500">
-                    <span>Fetal development</span>
-                    <span>Week 26</span>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-slate-100">
-                    <div className="h-full w-[64%] rounded-full bg-gradient-to-r from-cyan-500 to-blue-500" />
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'appointments' && (
-        <SectionShell id="appointments" icon={Calendar} title="Appointments" description={doctorSections[2].summary} submenu={appointmentFilters}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-            <div className="card border-slate-200">
-              <h3 className="mb-4 text-sm font-bold text-slate-900">Today's Schedule</h3>
-              <div className="space-y-3">
-                {sampleAppointments.map((item) => (
-                  <ScheduleRow key={`${item.time}-${item.patient}`} {...item} />
-                ))}
-              </div>
-            </div>
-            <div className="card border-slate-200 bg-slate-950 text-white">
-              <h3 className="mb-4 text-sm font-bold text-white">Calendar Snapshot</h3>
-              <div className="grid grid-cols-7 gap-2 text-center text-[10px]">
-                {['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'].map((day, index) => (
-                  <div key={day} className={cn('rounded-xl p-3', index === 2 ? 'bg-white/10' : 'bg-white/5')}>
-                    <div className="font-bold">{day}</div>
-                    <div className="mt-2 text-cyan-200">{index + 9}</div>
-                  </div>
-                ))}
-              </div>
-              <div className="mt-4 space-y-2 text-xs text-slate-300">
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2"><span>Missed appointments</span><span className="font-semibold text-amber-200">2</span></div>
-                <div className="flex items-center justify-between rounded-xl bg-white/5 px-3 py-2"><span>Teleconsultations</span><span className="font-semibold text-cyan-200">4</span></div>
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'escalations' && (
-        <SectionShell id="escalations" icon={ShieldAlert} title="Escalations" description={doctorSections[3].summary} submenu={escalationFilters}>
-          <div className="grid gap-4 xl:grid-cols-[1.3fr_0.8fr]">
-            <div className="space-y-3">
-              {(escalations.length ? escalations : mockEscalations).map((item, index) => (
-                <EscalationCard key={item.id || index} item={item} onResolve={resolveEscalation} />
-              ))}
-            </div>
-            <div className="card border-slate-200 bg-rose-50/60">
-              <h3 className="mb-3 text-sm font-bold text-slate-900">Escalation History</h3>
-              <div className="space-y-3">
-                <HistoryMetric label="Pending" value={pendingEscalations.length || 3} color="rose" />
-                <HistoryMetric label="Resolved today" value={summaryStats.pendingEscalations ? summaryStats.pendingEscalations + 2 : 5} color="emerald" />
-                <HistoryMetric label="Specialist referrals" value={4} color="amber" />
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'monitoring' && (
-        <SectionShell id="monitoring" icon={HeartPulse} title="Monitoring" description={doctorSections[4].summary} submenu={monitoringFilters}>
-          <div className="grid gap-6 xl:grid-cols-[1.4fr_0.8fr]">
-            <div className="card border-slate-200">
-              <div className="grid gap-6 lg:grid-cols-2">
-                <TrendCard title="Vitals Trend" subtitle="Blood pressure and glucose" />
-                <TrendCard title="Mood Trend" subtitle="Mood and stress" variant="mood" />
-              </div>
-              <div className="mt-6 h-64">
-                <ResponsiveContainer width="100%" height="100%">
-                  <LineChart data={vitalsTrend}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" />
-                    <XAxis dataKey="label" tick={{ fontSize: 11 }} />
-                    <YAxis tick={{ fontSize: 11 }} />
-                    <Tooltip />
-                    <Line type="monotone" dataKey="systolic" stroke="#ef4444" strokeWidth={3} />
-                    <Line type="monotone" dataKey="diastolic" stroke="#3b82f6" strokeWidth={3} />
-                    <Line type="monotone" dataKey="glucose" stroke="#8b5cf6" strokeWidth={3} />
-                  </LineChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
-
-            <div className="space-y-4">
-              <div className="card border-slate-200 bg-cyan-50/50">
-                <h3 className="mb-3 text-sm font-bold text-slate-900">Device Sync</h3>
-                <div className="space-y-3">
-                  <SyncRow label="BP cuff" value="Synced 6 min ago" />
-                  <SyncRow label="Glucose meter" value="Synced 22 min ago" />
-                  <SyncRow label="Fetal tracker" value="Synced 48 min ago" />
-                  <SyncRow label="Mood tracker" value="Synced 1 hour ago" />
-                </div>
-              </div>
-              <div className="card border-slate-200">
-                <h3 className="mb-3 text-sm font-bold text-slate-900">Anomaly Detection</h3>
-                <div className="space-y-2 text-sm text-slate-600">
-                  <AlertLine label="Blood pressure spike detected" tone="rose" />
-                  <AlertLine label="Reduced sleep quality trend" tone="amber" />
-                  <AlertLine label="Fetal movement logs consistent" tone="emerald" />
-                </div>
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'clinical-notes' && (
-        <SectionShell id="clinical-notes" icon={NotebookPen} title="Clinical Notes" description={doctorSections[5].summary} submenu={doctorSections[5].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <div className="card border-slate-200">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-slate-900">SOAP Notes</h3>
-                <button className="text-xs font-semibold text-primary-600 hover:underline">Use template</button>
-              </div>
-              <textarea
-                className="min-h-40 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm outline-none focus:border-primary-400"
-                placeholder="Subjective, Objective, Assessment, Plan..."
-                defaultValue="Patient reports reduced sleep and increased anxiety. BP trend requires close observation."
-              />
-              <div className="mt-4 flex flex-wrap gap-2">
-                {['Consultation', 'Follow-up', 'Discharge', 'Urgent Review'].map((template) => (
-                  <button key={template} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600 hover:bg-slate-200">
-                    {template}
-                  </button>
-                ))}
-              </div>
-            </div>
-            <div className="space-y-3">
-              {mockClinicalNotes.map((note) => (
-                <NoteCard key={note.title} note={note} />
-              ))}
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'prescriptions' && (
-        <SectionShell id="prescriptions" icon={Pill} title="Prescriptions" description={doctorSections[6].summary} submenu={doctorSections[6].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
-            <div className="grid gap-3 md:grid-cols-2">
-              {mockMedications.map((medication) => (
-                <MedicationCard key={medication.name} medication={medication} />
-              ))}
-            </div>
-            <div className="space-y-4">
-              <div className="card border-amber-100 bg-amber-50/60">
-                <h3 className="mb-3 text-sm font-bold text-slate-900">Drug Interaction Alerts</h3>
-                <div className="space-y-2 text-sm text-slate-700">
-                  <AlertLine label="Iron supplement may affect thyroid medication timing" tone="amber" />
-                  <AlertLine label="NSAID caution in third trimester" tone="rose" />
-                </div>
-              </div>
-              <div className="card border-slate-200">
-                <h3 className="mb-3 text-sm font-bold text-slate-900">Medication Management</h3>
-                <div className="space-y-3 text-sm text-slate-600">
-                  <ProgressRow label="Adherence" value={87} />
-                  <ProgressRow label="Active refills" value={64} />
-                </div>
-                <button className="btn-primary mt-4 flex w-full items-center justify-center gap-2">
-                  <Download className="h-4 w-4" /> Export / Download PDF
-                </button>
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'telehealth' && (
-        <SectionShell id="telehealth" icon={Video} title="Telehealth" description={doctorSections[7].summary} submenu={doctorSections[7].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <div className="space-y-3">
-              {telehealthRooms.map((room) => (
-                <SessionCard key={room.title} room={room} />
-              ))}
-            </div>
-            <div className="card border-slate-200 bg-slate-950 text-white">
-              <h3 className="mb-3 text-sm font-bold text-white">Waiting Room</h3>
-              <div className="space-y-3">
-                {waitingRoom.map((entry) => (
-                  <WaitingRoomRow key={entry.name} {...entry} />
-                ))}
-              </div>
-              <div className="mt-4 rounded-2xl bg-white/5 p-4 text-xs text-slate-300">
-                Share reports, join remote consultation sessions, and attach consultation notes from the session history.
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'ai-copilot' && (
-        <SectionShell id="ai-copilot" icon={Bot} title="AI Copilot" description={doctorSections[8].summary} submenu={doctorSections[8].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <div className="card border-slate-200 bg-gradient-to-br from-slate-950 to-cyan-950 text-white">
-              <div className="mb-4 flex items-center justify-between">
-                <h3 className="text-sm font-bold text-white">Patient Summaries</h3>
-                <Sparkles className="h-4 w-4 text-cyan-200" />
-              </div>
-              <p className="text-sm leading-6 text-slate-200">
-                AI-generated summary: recurrent BP rise, reduced sleep quality, and fluctuating mood scores suggest a need for closer review and an early follow-up.
-              </p>
-              <div className="mt-4 grid gap-3 sm:grid-cols-2">
-                <SummaryTile label="Confidence" value="91%" />
-                <SummaryTile label="Severity" value="High" />
-                <SummaryTile label="Explainability" value="SHAP active" />
-                <SummaryTile label="Forecast" value="72h risk window" />
-              </div>
-            </div>
-            <div className="card border-slate-200">
-              <h3 className="mb-3 text-sm font-bold text-slate-900">Risk Analysis</h3>
-              <div className="space-y-3">
-                <RiskFactorRow label="Rising BP trend" impact="0.31" />
-                <RiskFactorRow label="Lower sleep quality" impact="0.22" />
-                <RiskFactorRow label="Stress amplification" impact="0.18" />
-                <RiskFactorRow label="Good adherence history" impact="-0.11" />
-              </div>
-              <div className="mt-4 rounded-2xl bg-slate-50 p-4 text-sm leading-6 text-slate-600">
-                AI recommendations: review vitals, confirm medication adherence, consider escalation if symptoms worsen, and generate a patient-friendly summary.
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'reports' && (
-        <SectionShell id="reports" icon={FileBarChart} title="Reports" description={doctorSections[9].summary} submenu={doctorSections[9].submenu}>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {sampleReports.map((report) => (
-              <ReportCard key={report.title} report={report} />
-            ))}
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'communication' && (
-        <SectionShell id="communication" icon={MessageSquare} title="Communication" description={doctorSections[10].summary} submenu={doctorSections[10].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
-            <div className="space-y-3">
-              {sampleMessages.map((message) => (
-                <MessageCard key={`${message.from}-${message.time}`} message={message} />
-              ))}
-            </div>
-            <div className="card border-slate-200">
-              <h3 className="mb-3 text-sm font-bold text-slate-900">Compose Secure Message</h3>
-              <textarea className="min-h-36 w-full rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm outline-none" placeholder="Write instructions, reminders, or follow-up guidance..." />
-              <button className="btn-primary mt-4 flex w-full items-center justify-center gap-2">
-                <Send className="h-4 w-4" /> Send Secure Message
+          <div className="flex gap-2">
+            {['all', 'HIGH', 'MEDIUM', 'LOW'].map((f) => (
+              <button
+                key={f}
+                onClick={() => setRiskFilter(f)}
+                className={cn(
+                  'rounded-full px-3 py-1.5 text-xs font-semibold transition-colors',
+                  riskFilter === f ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                )}
+              >
+                {f === 'all' ? 'All' : f}
               </button>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'tasks' && (
-        <SectionShell id="tasks" icon={ListTodo} title="Tasks" description={doctorSections[11].summary} submenu={doctorSections[11].submenu}>
-          <div className="grid gap-6 xl:grid-cols-[1fr_0.9fr]">
-            <div className="space-y-3">
-              {sampleTasks.map((task) => (
-                <TaskCard key={task.title} task={task} />
-              ))}
-            </div>
-            <div className="card border-slate-200 bg-gradient-to-br from-cyan-50 to-white">
-              <h3 className="mb-3 text-sm font-bold text-slate-900">Task Priorities</h3>
-              <div className="space-y-3">
-                <ProgressRow label="Pending follow-ups" value={73} />
-                <ProgressRow label="Review requests" value={61} />
-                <ProgressRow label="Completed today" value={84} />
-              </div>
-            </div>
-          </div>
-        </SectionShell>
-        )}
-
-        {selectedSection === 'settings' && (
-        <SectionShell id="settings" icon={Settings} title="Settings" description={doctorSections[12].summary} submenu={doctorSections[12].submenu}>
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {sampleSettings.map((setting) => (
-              <SettingsCard key={setting.title} setting={setting} />
             ))}
           </div>
-        </SectionShell>
-        )}
-      </div>
+        </div>
 
+        {filtered.length === 0 ? (
+          <EmptyState icon={Users} message="No patients match the current filters." />
+        ) : (
+          <div className="mt-4 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-slate-100 bg-slate-50/60">
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Patient</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Week</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Mental</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Physical</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Fetal</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Location</th>
+                  <th className="px-4 py-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((p, i) => (
+                  <motion.tr
+                    key={p.user_id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ delay: i * 0.02 }}
+                    className="border-b border-slate-50 transition-colors hover:bg-slate-50/60"
+                  >
+                    <td className="px-4 py-3">
+                      <p className="font-semibold text-slate-900">{p.name}</p>
+                      <p className="text-xs text-slate-500">{p.email}</p>
+                    </td>
+                    <td className="px-4 py-3 text-slate-700">{p.pregnancy_week ?? '--'}</td>
+                    <td className="px-4 py-3"><RiskPill level={p.latest_risk?.mental_risk_level} /></td>
+                    <td className="px-4 py-3"><RiskPill level={p.latest_risk?.physical_risk_level} /></td>
+                    <td className="px-4 py-3"><RiskPill level={p.latest_risk?.fetal_risk_level} /></td>
+                    <td className="px-4 py-3 text-slate-500">{p.city || '—'}</td>
+                    <td className="px-4 py-3">
+                      <button
+                        onClick={() => openPatient(p.user_id)}
+                        className="rounded-xl bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-primary-50 hover:text-primary-700"
+                      >
+                        <Eye className="mr-1 inline h-3.5 w-3.5" /> View
+                      </button>
+                    </td>
+                  </motion.tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionShell>
+
+      {/* Patient detail overlay */}
       <AnimatePresence>
-        {selectedPatient && predictions && (
+        {selectedPatient && (
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-sm">
             <div className="absolute inset-y-0 right-0 w-full max-w-6xl overflow-y-auto bg-slate-50 shadow-2xl">
               <div className="p-4 sm:p-6 lg:p-8">
                 <div className="mb-4 flex items-center justify-between">
                   <div>
-                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Patient Focus View</p>
-                    <h2 className="text-xl font-bold text-slate-900">Patient Detail Dashboard</h2>
+                    <p className="text-xs font-bold uppercase tracking-[0.3em] text-slate-500">Patient Focus</p>
+                    <h2 className="text-xl font-bold text-slate-900">
+                      {patients.find((p) => p.user_id === selectedPatient)?.name || 'Patient'}
+                    </h2>
                   </div>
-                  <button onClick={closePatientFocus} className="rounded-full bg-white p-2 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100">
-                    <ChevronButtonIcon />
+                  <button onClick={closePatient} className="rounded-full bg-white p-2 shadow-sm ring-1 ring-slate-200 hover:bg-slate-100">
+                    <X className="h-4 w-4 text-slate-600" />
                   </button>
                 </div>
-
                 {loadingPredictions ? (
                   <div className="flex min-h-[50vh] items-center justify-center">
                     <RefreshCw className="h-8 w-8 animate-spin text-primary-500" />
                   </div>
-                ) : (
+                ) : predictions ? (
                   <PatientDetailDashboard
                     data={predictions}
-                    patientName={patients.find((item) => item.user_id === selectedPatient)?.name || 'Patient'}
-                    onBack={closePatientFocus}
+                    patientName={patients.find((p) => p.user_id === selectedPatient)?.name || 'Patient'}
+                    onBack={closePatient}
                     onAddNote={handleAddNote}
                     onAddAppointment={handleAddAppointment}
                   />
+                ) : (
+                  <EmptyState icon={AlertTriangle} message="Failed to load patient data." />
                 )}
               </div>
             </div>
@@ -861,76 +483,1048 @@ export default function DoctorDashboardPage() {
   );
 }
 
-function SectionShell({
-  id,
-  icon: Icon,
-  title,
-  description,
-  submenu,
-  children,
-}: {
-  id: DoctorSectionId;
-  icon: typeof LayoutDashboard;
-  title: string;
-  description: string;
-  submenu: string[];
-  children: React.ReactNode;
-}) {
-  return (
-    <section id={id} className="scroll-mt-24 space-y-4">
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
-        <div>
-          <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">
-            <Icon className="h-3 w-3" /> {title}
-          </div>
-          <h2 className="mt-3 text-2xl font-display font-black text-slate-950">{title}</h2>
-          <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{description}</p>
-        </div>
-      </div>
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  3. APPOINTMENTS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-      <div className="flex flex-wrap gap-2">
-        {submenu.map((item) => (
-          <span key={item} className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-600">
-            {item}
-          </span>
+function AppointmentsView() {
+  const [loading, setLoading] = useState(true);
+  const [appointments, setAppointments] = useState<any[]>([]);
+  const [tab, setTab] = useState<string>('all');
+  const [updating, setUpdating] = useState<number | null>(null);
+
+  const fetchAppointments = useCallback(async () => {
+    try {
+      const res = await doctorService.listAppointments(tab === 'all' ? undefined : tab);
+      setAppointments(res.data || []);
+    } finally {
+      setLoading(false);
+    }
+  }, [tab]);
+
+  useEffect(() => {
+    setLoading(true);
+    fetchAppointments();
+  }, [fetchAppointments]);
+
+  const updateStatus = async (id: number, status: string) => {
+    setUpdating(id);
+    try {
+      await doctorService.updateAppointmentStatus(id, status);
+      await fetchAppointments();
+    } finally {
+      setUpdating(null);
+    }
+  };
+
+  const tabs = [
+    { key: 'all', label: 'All' },
+    { key: 'upcoming', label: 'Upcoming' },
+    { key: 'completed', label: 'Completed' },
+    { key: 'cancelled', label: 'Cancelled' },
+  ];
+
+  return (
+    <SectionShell icon={Calendar} title="Appointments" subtitle="Manage and track patient appointments">
+      <div className="flex gap-2">
+        {tabs.map((t) => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={cn(
+              'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+              tab === t.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+            )}
+          >
+            {t.label}
+          </button>
         ))}
       </div>
 
+      {loading ? (
+        <SkeletonRows count={4} />
+      ) : appointments.length === 0 ? (
+        <EmptyState icon={Calendar} message={`No ${tab === 'all' ? '' : tab + ' '}appointments found.`} />
+      ) : (
+        <div className="mt-2 space-y-3">
+          {appointments.map((apt) => (
+            <Card key={apt.id}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h4 className="text-sm font-semibold text-slate-900">{apt.patient_name || `Patient #${apt.patient_id}`}</h4>
+                    <StatusChip status={apt.status} />
+                    {apt.type && (
+                      <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                        {apt.type || apt.appointment_type}
+                      </span>
+                    )}
+                  </div>
+                  <p className="mt-1 text-xs text-slate-500">
+                    <Calendar className="mr-1 inline h-3.5 w-3.5" />
+                    {formatDate(apt.date || apt.appointment_date)}
+                    {apt.reason && <> · {apt.reason}</>}
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  {apt.status === 'pending' && (
+                    <>
+                      <ActionButton label="Accept" loading={updating === apt.id} onClick={() => updateStatus(apt.id, 'confirmed')} variant="primary" />
+                      <ActionButton label="Cancel" loading={updating === apt.id} onClick={() => updateStatus(apt.id, 'cancelled')} variant="danger" />
+                    </>
+                  )}
+                  {apt.status === 'confirmed' && (
+                    <ActionButton label="Complete" loading={updating === apt.id} onClick={() => updateStatus(apt.id, 'completed')} variant="success" />
+                  )}
+                </div>
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  4. ESCALATIONS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function EscalationsView() {
+  const [loading, setLoading] = useState(true);
+  const [escalations, setEscalations] = useState<Escalation[]>([]);
+  const [resolveNotes, setResolveNotes] = useState<Record<string, string>>({});
+  const [resolving, setResolving] = useState<string | null>(null);
+
+  const fetchData = useCallback(async () => {
+    try {
+      const [dashRes, escRes] = await Promise.allSettled([doctorService.getDashboard(), escalationService.list()]);
+      let items: Escalation[] = [];
+      if (escRes.status === 'fulfilled') items = escRes.value.data || [];
+      if (items.length === 0 && dashRes.status === 'fulfilled') items = dashRes.value.data?.escalations || [];
+      setEscalations(items);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleResolve = async (id: string) => {
+    setResolving(id);
+    try {
+      await escalationService.resolve(id, { status: 'resolved', notes: resolveNotes[id] || 'Reviewed and resolved by doctor' });
+      setEscalations((prev) => prev.map((e) => (e.id === id ? { ...e, status: 'resolved' } : e)));
+    } finally {
+      setResolving(null);
+    }
+  };
+
+  if (loading) return <ViewSkeleton />;
+
+  const pending = escalations.filter((e) => e.status === 'pending');
+  const resolved = escalations.filter((e) => e.status === 'resolved');
+
+  return (
+    <SectionShell icon={ShieldAlert} title="Escalations" subtitle="AI-generated and manual escalation queue">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <MiniStatCard label="Pending" value={pending.length} tone="amber" />
+        <MiniStatCard label="Resolved" value={resolved.length} tone="emerald" />
+        <MiniStatCard label="Total" value={escalations.length} tone="slate" />
+      </div>
+
+      {escalations.length === 0 ? (
+        <EmptyState icon={ShieldAlert} message="No escalations found." />
+      ) : (
+        <div className="mt-4 space-y-3">
+          {escalations.map((esc) => (
+            <Card key={esc.id}>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="flex-1">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <StatusChip status={esc.status} />
+                    <RiskPill level={esc.severity || esc.risk_level} />
+                    <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+                      {esc.risk_type}
+                    </span>
+                  </div>
+                  <p className="mt-2 text-sm font-medium text-slate-900">{esc.escalation_reason || esc.reason}</p>
+                  <p className="mt-1 text-xs text-slate-500">Triggered {formatDate(esc.created_at || esc.triggered_at)}</p>
+                </div>
+                {esc.status === 'pending' && (
+                  <div className="flex flex-col gap-2 sm:items-end">
+                    <input
+                      value={resolveNotes[esc.id] || ''}
+                      onChange={(e) => setResolveNotes((prev) => ({ ...prev, [esc.id]: e.target.value }))}
+                      placeholder="Resolution notes..."
+                      className="w-full rounded-xl border border-slate-200 px-3 py-2 text-xs outline-none transition-colors focus:border-primary-400 sm:w-56"
+                    />
+                    <button
+                      onClick={() => handleResolve(esc.id)}
+                      disabled={resolving === esc.id}
+                      className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-3 py-2 text-xs font-semibold text-white transition-colors hover:bg-emerald-700 disabled:opacity-50"
+                    >
+                      {resolving === esc.id ? <RefreshCw className="h-3.5 w-3.5 animate-spin" /> : <CheckCircle2 className="h-3.5 w-3.5" />}
+                      Resolve
+                    </button>
+                  </div>
+                )}
+              </div>
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  5. MONITORING VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function MonitoringView() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.getMonitoring();
+        setData(res.data);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <ViewSkeleton />;
+
+  const highRiskPatients = data?.high_risk_patients || [];
+  const criticalAlerts = data?.critical_alerts || [];
+  const summary = data?.summary || {};
+
+  return (
+    <SectionShell icon={HeartPulse} title="Real-Time Monitoring" subtitle="High-risk patients, critical alerts, and vitals">
+      {/* Critical alerts banner */}
+      {criticalAlerts.length > 0 && (
+        <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4">
+          <div className="mb-2 flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 text-rose-600" />
+            <h4 className="text-sm font-bold text-rose-700">Critical Alerts</h4>
+          </div>
+          <div className="space-y-2">
+            {criticalAlerts.map((alert: any, i: number) => (
+              <p key={i} className="text-sm text-rose-700">{alert.message || alert.description || JSON.stringify(alert)}</p>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Summary stats */}
+      {summary && (
+        <div className="grid gap-3 sm:grid-cols-3">
+          <MiniStatCard label="Monitored Patients" value={summary.monitored_patients ?? highRiskPatients.length} tone="cyan" />
+          <MiniStatCard label="Critical Alerts" value={summary.critical_count ?? criticalAlerts.length} tone="rose" />
+          <MiniStatCard label="Stable" value={summary.stable_count ?? 0} tone="emerald" />
+        </div>
+      )}
+
+      {/* High-risk patient cards */}
+      {highRiskPatients.length === 0 ? (
+        <EmptyState icon={HeartPulse} message="No high-risk patients being monitored." />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {highRiskPatients.map((p: any) => (
+            <Card key={p.user_id || p.id || p.name}>
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">{p.name || p.patient_name}</h4>
+                  <p className="text-xs text-slate-500">Week {p.pregnancy_week ?? '--'}</p>
+                </div>
+                <RiskPill level={p.risk_level || 'HIGH'} />
+              </div>
+              {p.vitals && (
+                <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+                  {p.vitals.bp && <VitalChip label="BP" value={p.vitals.bp} />}
+                  {p.vitals.heart_rate && <VitalChip label="HR" value={`${p.vitals.heart_rate} bpm`} />}
+                  {p.vitals.glucose && <VitalChip label="Glucose" value={p.vitals.glucose} />}
+                  {p.vitals.weight && <VitalChip label="Weight" value={`${p.vitals.weight} kg`} />}
+                </div>
+              )}
+              {p.alert && <p className="mt-3 rounded-xl bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">{p.alert}</p>}
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  6. CLINICAL NOTES VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function ClinicalNotesView() {
+  const [loading, setLoading] = useState(true);
+  const [notes, setNotes] = useState<any[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.listClinicalNotes();
+        setNotes(res.data || []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <ViewSkeleton />;
+
+  return (
+    <SectionShell icon={NotebookPen} title="Clinical Notes" subtitle="Consultation notes and documentation history">
+      {notes.length === 0 ? (
+        <EmptyState icon={FileText} message="No clinical notes found." />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {notes.map((note) => (
+            <Card key={note.id}>
+              <div className="flex items-center justify-between">
+                <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-primary-600">
+                  {note.note_type || 'Note'}
+                </span>
+                <span className="text-xs text-slate-400">{formatDate(note.created_at)}</span>
+              </div>
+              <h4 className="mt-3 text-sm font-semibold text-slate-900">{note.patient_name || `Patient #${note.patient_id}`}</h4>
+              <p className="mt-2 line-clamp-3 text-sm leading-relaxed text-slate-600">{note.content}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  7. PRESCRIPTIONS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function PrescriptionsView() {
+  const [loading, setLoading] = useState(true);
+  const [prescriptions, setPrescriptions] = useState<any[]>([]);
+  const [activeOnly, setActiveOnly] = useState(true);
+
+  const fetchPrescriptions = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await doctorService.listPrescriptions(activeOnly);
+      setPrescriptions(res.data || []);
+    } finally {
+      setLoading(false);
+    }
+  }, [activeOnly]);
+
+  useEffect(() => { fetchPrescriptions(); }, [fetchPrescriptions]);
+
+  return (
+    <SectionShell icon={Pill} title="Prescriptions" subtitle="Active and historical prescription management">
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => setActiveOnly(!activeOnly)}
+          className={cn(
+            'rounded-full px-4 py-1.5 text-xs font-semibold transition-colors',
+            activeOnly ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600',
+          )}
+        >
+          {activeOnly ? 'Showing Active' : 'Showing All'}
+        </button>
+      </div>
+
+      {loading ? (
+        <SkeletonRows count={3} />
+      ) : prescriptions.length === 0 ? (
+        <EmptyState icon={Pill} message="No prescriptions found." />
+      ) : (
+        <div className="mt-2 overflow-x-auto rounded-2xl border border-slate-200 bg-white">
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/60">
+                <th className="px-4 py-3 text-left font-semibold text-slate-600">Patient</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-600">Medication</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-600">Dosage</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-600">Frequency</th>
+                <th className="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {prescriptions.map((rx) => (
+                <tr key={rx.id} className="border-b border-slate-50 transition-colors hover:bg-slate-50/60">
+                  <td className="px-4 py-3 font-medium text-slate-900">{rx.patient_name || `Patient #${rx.patient_id}`}</td>
+                  <td className="px-4 py-3 text-slate-700">{rx.name}</td>
+                  <td className="px-4 py-3 text-slate-500">{rx.dosage || '—'}</td>
+                  <td className="px-4 py-3 text-slate-500">{rx.frequency || '—'}</td>
+                  <td className="px-4 py-3">
+                    <span className={cn(
+                      'rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest',
+                      rx.is_active ? 'bg-emerald-100 text-emerald-700' : 'bg-slate-100 text-slate-500',
+                    )}>
+                      {rx.is_active ? 'Active' : 'Inactive'}
+                    </span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  8. TELEHEALTH VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TelehealthView() {
+  const navigate = useNavigate();
+  const [loading, setLoading] = useState(true);
+  const [sessions, setSessions] = useState<any[]>([]);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.listTelehealth();
+        setSessions(res.data || []);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <ViewSkeleton />;
+
+  return (
+    <SectionShell icon={Video} title="Telehealth" subtitle="Virtual consultation sessions and waiting room">
+      {sessions.length === 0 ? (
+        <EmptyState icon={Video} message="No telehealth sessions found." />
+      ) : (
+        <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          {sessions.map((s) => (
+            <Card key={s.id} className="hover:border-primary-200 transition-all">
+              <div className="flex items-start justify-between">
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900">{s.patient_name || `Patient #${s.patient_id}`}</h4>
+                  <p className="text-xs text-slate-500">{formatDate(s.date || s.scheduled_at || s.created_at)}</p>
+                </div>
+                <StatusChip status={s.status} />
+              </div>
+              <button
+                onClick={() => {
+                  if (s.link) window.open(s.link, '_blank');
+                  else navigate(`/telemedicine/${s.id}`);
+                }}
+                className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600"
+              >
+                <PhoneCall className="h-4 w-4" /> Join Session
+              </button>
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  9. AI COPILOT VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function AICopilotView() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.getAICopilot();
+        setData(res.data);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <ViewSkeleton />;
+
+  const riskDist = data?.risk_distribution || {};
+  const concerns = data?.top_concerns || [];
+  const needsAttention = data?.patients_needing_attention || [];
+  const recommendations = data?.ai_recommendations || [];
+
+  const chartData = Object.entries(riskDist).map(([level, count]) => ({
+    level,
+    count: count as number,
+    fill: level === 'HIGH' ? '#ef4444' : level === 'MEDIUM' ? '#f59e0b' : '#22c55e',
+  }));
+
+  return (
+    <SectionShell icon={Bot} title="AI Copilot" subtitle="AI-powered risk analysis and clinical insights">
+      <div className="grid gap-6 xl:grid-cols-2">
+        {/* Risk distribution */}
+        <Card className="bg-gradient-to-br from-slate-950 to-cyan-950 text-white">
+          <div className="mb-4 flex items-center justify-between">
+            <h3 className="text-sm font-bold text-white">Risk Distribution</h3>
+            <Sparkles className="h-4 w-4 text-cyan-200" />
+          </div>
+          {chartData.length > 0 ? (
+            <div className="h-56">
+              <ResponsiveContainer width="100%" height="100%">
+                <BarChart data={chartData}>
+                  <XAxis dataKey="level" tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <YAxis tick={{ fill: '#94a3b8', fontSize: 11 }} />
+                  <Tooltip />
+                  <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                    {chartData.map((entry, i) => (
+                      <Cell key={i} fill={entry.fill} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            </div>
+          ) : (
+            <p className="text-sm text-slate-400">No risk distribution data available.</p>
+          )}
+          <div className="mt-4 grid grid-cols-3 gap-3">
+            {['HIGH', 'MEDIUM', 'LOW'].map((level) => (
+              <div key={level} className="rounded-2xl bg-white/10 p-3 text-center">
+                <p className="text-[10px] font-bold uppercase tracking-widest text-slate-300">{level}</p>
+                <p className="mt-1 text-xl font-black text-white">{riskDist[level] ?? 0}</p>
+              </div>
+            ))}
+          </div>
+        </Card>
+
+        {/* Top concerns + recommendations */}
+        <div className="space-y-4">
+          <Card>
+            <CardHeader title="Top Health Concerns" />
+            {concerns.length === 0 ? (
+              <p className="text-sm text-slate-500">No concerns flagged.</p>
+            ) : (
+              <div className="space-y-2">
+                {concerns.map((c: any, i: number) => (
+                  <div key={i} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+                    <span className="text-sm text-slate-700">{typeof c === 'string' ? c : c.concern || c.label}</span>
+                    {c.count && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">{c.count}</span>}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+
+          <Card>
+            <CardHeader title="AI Recommendations" />
+            {recommendations.length === 0 ? (
+              <p className="text-sm text-slate-500">No recommendations at this time.</p>
+            ) : (
+              <div className="space-y-2">
+                {recommendations.map((r: any, i: number) => (
+                  <div key={i} className="rounded-2xl bg-cyan-50 px-4 py-3 text-sm text-cyan-800 ring-1 ring-cyan-100">
+                    {typeof r === 'string' ? r : r.recommendation || r.text}
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </div>
+      </div>
+
+      {/* Patients needing attention */}
+      {needsAttention.length > 0 && (
+        <div className="mt-6">
+          <Card>
+            <CardHeader title="Patients Needing Attention" badge={`${needsAttention.length} flagged`} />
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
+              {needsAttention.map((p: any, i: number) => (
+                <div key={i} className="rounded-2xl border border-slate-200 bg-white p-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-semibold text-slate-900">{p.name || p.patient_name}</h4>
+                    <RiskPill level={p.risk_level} />
+                  </div>
+                  {p.reason && <p className="mt-2 text-xs text-slate-500">{p.reason}</p>}
+                </div>
+              ))}
+            </div>
+          </Card>
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  10. REPORTS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function ReportsView() {
+  const [loading, setLoading] = useState(true);
+  const [data, setData] = useState<any>(null);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.getReports();
+        setData(res.data);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) return <ViewSkeleton />;
+
+  const stats = [
+    { label: 'Total Appointments', value: data?.appointments?.total ?? data?.appointments ?? 0, icon: Calendar, gradient: 'from-violet-500 to-fuchsia-500' },
+    { label: 'Clinical Notes', value: data?.clinical_notes?.total ?? data?.clinical_notes ?? 0, icon: FileText, gradient: 'from-cyan-500 to-blue-500' },
+    { label: 'Prescriptions', value: data?.prescriptions?.total ?? data?.prescriptions ?? 0, icon: Pill, gradient: 'from-emerald-500 to-teal-500' },
+    { label: 'Escalation Resolution', value: data?.escalations?.resolution_rate ? `${data.escalations.resolution_rate}%` : (data?.escalations ?? '—'), icon: ShieldAlert, gradient: 'from-amber-500 to-orange-500' },
+  ];
+
+  return (
+    <SectionShell icon={FileBarChart} title="Reports" subtitle="Practice performance and clinical metrics">
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {stats.map((s) => (
+          <StatCard key={s.label} label={s.label} value={s.value} icon={s.icon} gradient={s.gradient} />
+        ))}
+      </div>
+
+      {data?.details && (
+        <div className="mt-6 grid gap-4 sm:grid-cols-2">
+          {Object.entries(data.details).map(([key, val]: [string, any]) => (
+            <Card key={key}>
+              <h4 className="text-sm font-bold capitalize text-slate-900">{key.replace(/_/g, ' ')}</h4>
+              <p className="mt-2 text-sm text-slate-600">{typeof val === 'string' ? val : JSON.stringify(val)}</p>
+            </Card>
+          ))}
+        </div>
+      )}
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  11. COMMUNICATION VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function CommunicationView() {
+  const [loading, setLoading] = useState(true);
+  const [messages, setMessages] = useState<any[]>([]);
+  const [receiverId, setReceiverId] = useState('');
+  const [subject, setSubject] = useState('');
+  const [content, setContent] = useState('');
+  const [sending, setSending] = useState(false);
+
+  const fetchMessages = useCallback(async () => {
+    try {
+      const res = await doctorService.getMessages();
+      setMessages(res.data || []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchMessages(); }, [fetchMessages]);
+
+  const handleSend = async () => {
+    if (!receiverId || !content.trim()) return;
+    setSending(true);
+    try {
+      await doctorService.sendMessage({ receiver_id: parseInt(receiverId), subject, content });
+      setReceiverId('');
+      setSubject('');
+      setContent('');
+      await fetchMessages();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  return (
+    <SectionShell icon={MessageSquare} title="Communication" subtitle="Secure messaging with patients and staff">
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        {/* Messages list */}
+        <div>
+          {loading ? (
+            <SkeletonRows count={3} />
+          ) : messages.length === 0 ? (
+            <EmptyState icon={MessageSquare} message="No messages yet." />
+          ) : (
+            <div className="space-y-3">
+              {messages.map((msg, i) => (
+                <Card key={msg.id || i}>
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-sm font-bold text-slate-900">{msg.sender_name || msg.from || `User #${msg.sender_id}`}</h4>
+                    <span className="text-xs text-slate-400">{msg.created_at ? formatDate(msg.created_at) : msg.time}</span>
+                  </div>
+                  {msg.subject && <p className="mt-1 text-xs font-semibold text-primary-600">{msg.subject}</p>}
+                  <p className="mt-2 text-sm leading-relaxed text-slate-600">{msg.content || msg.text}</p>
+                </Card>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Compose form */}
+        <Card>
+          <h3 className="mb-4 text-sm font-bold text-slate-900">Compose Message</h3>
+          <div className="space-y-3">
+            <input
+              value={receiverId}
+              onChange={(e) => setReceiverId(e.target.value)}
+              placeholder="Recipient ID"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary-400"
+            />
+            <input
+              value={subject}
+              onChange={(e) => setSubject(e.target.value)}
+              placeholder="Subject"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary-400"
+            />
+            <textarea
+              value={content}
+              onChange={(e) => setContent(e.target.value)}
+              placeholder="Write your message..."
+              rows={4}
+              className="w-full rounded-xl border border-slate-200 bg-white p-4 text-sm outline-none transition-colors focus:border-primary-400"
+            />
+            <button
+              onClick={handleSend}
+              disabled={sending || !receiverId || !content.trim()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+            >
+              {sending ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+              Send Message
+            </button>
+          </div>
+        </Card>
+      </div>
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  12. TASKS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function TasksView() {
+  const [loading, setLoading] = useState(true);
+  const [manualTasks, setManualTasks] = useState<any[]>([]);
+  const [autoTasks, setAutoTasks] = useState<any[]>([]);
+  const [newTitle, setNewTitle] = useState('');
+  const [newDesc, setNewDesc] = useState('');
+  const [newPriority, setNewPriority] = useState('medium');
+  const [creating, setCreating] = useState(false);
+  const [toggling, setToggling] = useState<string | null>(null);
+
+  const fetchTasks = useCallback(async () => {
+    try {
+      const res = await doctorService.getTasks();
+      const d = res.data || {};
+      setManualTasks(d.manual_tasks || []);
+      setAutoTasks(d.auto_tasks || []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { fetchTasks(); }, [fetchTasks]);
+
+  const handleCreate = async () => {
+    if (!newTitle.trim()) return;
+    setCreating(true);
+    try {
+      await doctorService.createTask({ title: newTitle, description: newDesc, priority: newPriority });
+      setNewTitle('');
+      setNewDesc('');
+      setNewPriority('medium');
+      await fetchTasks();
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const toggleStatus = async (taskId: string, currentStatus: string) => {
+    setToggling(taskId);
+    try {
+      const newStatus = currentStatus === 'completed' ? 'pending' : 'completed';
+      await doctorService.updateTaskStatus(taskId, newStatus);
+      await fetchTasks();
+    } finally {
+      setToggling(null);
+    }
+  };
+
+  return (
+    <SectionShell icon={ListTodo} title="Tasks" subtitle="Manage follow-ups, reviews, and workflow items">
+      <div className="grid gap-6 xl:grid-cols-[1fr_1fr]">
+        {/* Task lists */}
+        <div className="space-y-6">
+          {/* Auto tasks */}
+          <div>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Auto-Generated Tasks</h3>
+            {loading ? (
+              <SkeletonRows count={2} />
+            ) : autoTasks.length === 0 ? (
+              <p className="text-sm text-slate-500">No auto-generated tasks.</p>
+            ) : (
+              <div className="space-y-2">
+                {autoTasks.map((t) => (
+                  <TaskRow key={t.id} task={t} toggling={toggling} onToggle={toggleStatus} />
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Manual tasks */}
+          <div>
+            <h3 className="mb-3 text-sm font-bold text-slate-900">Manual Tasks</h3>
+            {loading ? (
+              <SkeletonRows count={2} />
+            ) : manualTasks.length === 0 ? (
+              <p className="text-sm text-slate-500">No manual tasks. Create one below.</p>
+            ) : (
+              <div className="space-y-2">
+                {manualTasks.map((t) => (
+                  <TaskRow key={t.id} task={t} toggling={toggling} onToggle={toggleStatus} />
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Create task form */}
+        <Card>
+          <h3 className="mb-4 text-sm font-bold text-slate-900">Create New Task</h3>
+          <div className="space-y-3">
+            <input
+              value={newTitle}
+              onChange={(e) => setNewTitle(e.target.value)}
+              placeholder="Task title"
+              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm outline-none transition-colors focus:border-primary-400"
+            />
+            <textarea
+              value={newDesc}
+              onChange={(e) => setNewDesc(e.target.value)}
+              placeholder="Description (optional)"
+              rows={3}
+              className="w-full rounded-xl border border-slate-200 bg-white p-4 text-sm outline-none transition-colors focus:border-primary-400"
+            />
+            <div className="flex gap-2">
+              {['low', 'medium', 'high'].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setNewPriority(p)}
+                  className={cn(
+                    'rounded-full px-3 py-1.5 text-xs font-semibold capitalize transition-colors',
+                    newPriority === p ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200',
+                  )}
+                >
+                  {p}
+                </button>
+              ))}
+            </div>
+            <button
+              onClick={handleCreate}
+              disabled={creating || !newTitle.trim()}
+              className="flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+            >
+              {creating ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+              Create Task
+            </button>
+          </div>
+        </Card>
+      </div>
+    </SectionShell>
+  );
+}
+
+function TaskRow({ task, toggling, onToggle }: { task: any; toggling: string | null; onToggle: (id: string, status: string) => void }) {
+  const isCompleted = task.status === 'completed';
+  return (
+    <div className={cn('flex items-center justify-between rounded-2xl border bg-white px-4 py-3 transition-colors', isCompleted ? 'border-emerald-100' : 'border-slate-200')}>
+      <div className="flex items-center gap-3">
+        <button
+          onClick={() => onToggle(task.id, task.status)}
+          disabled={toggling === task.id}
+          className={cn(
+            'flex h-5 w-5 items-center justify-center rounded-full border-2 transition-colors',
+            isCompleted ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-slate-300 hover:border-primary-400',
+          )}
+        >
+          {toggling === task.id ? (
+            <RefreshCw className="h-3 w-3 animate-spin" />
+          ) : isCompleted ? (
+            <CheckCircle2 className="h-3 w-3" />
+          ) : null}
+        </button>
+        <div>
+          <p className={cn('text-sm font-medium', isCompleted ? 'text-slate-400 line-through' : 'text-slate-900')}>{task.title}</p>
+          {task.description && <p className="text-xs text-slate-500">{task.description}</p>}
+        </div>
+      </div>
+      {task.priority && (
+        <span className={cn(
+          'rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest',
+          task.priority === 'high' ? 'bg-rose-100 text-rose-700' : task.priority === 'medium' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700',
+        )}>
+          {task.priority}
+        </span>
+      )}
+    </div>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  13. SETTINGS VIEW
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function SettingsView() {
+  const [loading, setLoading] = useState(true);
+  const [settings, setSettings] = useState<any>(null);
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await doctorService.getSettings();
+        setSettings(res.data || {});
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  const handleToggle = (key: string) => {
+    setSettings((prev: any) => ({ ...prev, [key]: !prev[key] }));
+    setSaved(false);
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    setSaved(false);
+    try {
+      await doctorService.updateSettings(settings);
+      setSaved(true);
+      setTimeout(() => setSaved(false), 3000);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) return <ViewSkeleton />;
+
+  return (
+    <SectionShell icon={Settings} title="Settings" subtitle="Profile, availability, and notification preferences">
+      <div className="grid gap-6 xl:grid-cols-2">
+        {/* Profile info */}
+        <Card>
+          <CardHeader title="Profile Information" />
+          <div className="space-y-3">
+            <SettingsField label="Name" value={settings?.name || settings?.full_name || '—'} />
+            <SettingsField label="Email" value={settings?.email || '—'} />
+            <SettingsField label="Specialization" value={settings?.specialization || '—'} />
+            <SettingsField label="Hospital" value={settings?.hospital || settings?.hospital_name || '—'} />
+          </div>
+        </Card>
+
+        {/* Toggles */}
+        <Card>
+          <CardHeader title="Preferences" />
+          <div className="space-y-4">
+            <ToggleRow
+              label="Available for appointments"
+              checked={settings?.is_available ?? true}
+              onChange={() => handleToggle('is_available')}
+            />
+            <ToggleRow
+              label="Receive escalation alerts"
+              checked={settings?.escalation_alerts ?? true}
+              onChange={() => handleToggle('escalation_alerts')}
+            />
+            <ToggleRow
+              label="Email notifications"
+              checked={settings?.email_notifications ?? true}
+              onChange={() => handleToggle('email_notifications')}
+            />
+            <ToggleRow
+              label="SMS notifications"
+              checked={settings?.sms_notifications ?? false}
+              onChange={() => handleToggle('sms_notifications')}
+            />
+          </div>
+
+          <button
+            onClick={handleSave}
+            disabled={saving}
+            className="mt-6 flex w-full items-center justify-center gap-2 rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-primary-600 disabled:opacity-50"
+          >
+            {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : saved ? <CheckCircle2 className="h-4 w-4" /> : <Settings className="h-4 w-4" />}
+            {saving ? 'Saving...' : saved ? 'Saved!' : 'Save Settings'}
+          </button>
+        </Card>
+      </div>
+    </SectionShell>
+  );
+}
+
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+//  SHARED / HELPER COMPONENTS
+// ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+function SectionShell({ icon: Icon, title, subtitle, children }: {
+  icon: typeof LayoutDashboard;
+  title: string;
+  subtitle: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className="space-y-5">
+      <div>
+        <div className="inline-flex items-center gap-2 rounded-full bg-slate-100 px-3 py-1 text-[10px] font-black uppercase tracking-[0.3em] text-slate-500">
+          <Icon className="h-3 w-3" /> {title}
+        </div>
+        <h2 className="mt-3 text-2xl font-display font-black text-slate-950">{title}</h2>
+        <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">{subtitle}</p>
+      </div>
       {children}
     </section>
   );
 }
 
-function HeroChip({ icon: Icon, label }: { icon: typeof LayoutDashboard; label: string }) {
-  return (
-    <span className="inline-flex items-center gap-1.5 rounded-full border border-white/10 bg-white/5 px-3 py-1.5">
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-    </span>
-  );
+function Card({ children, className }: { children: React.ReactNode; className?: string }) {
+  return <div className={cn('card border-slate-200', className)}>{children}</div>;
 }
 
-function HeaderActionButton({ icon: Icon, label, count }: { icon: typeof LayoutDashboard; label: string; count?: number }) {
+function CardHeader({ title, badge }: { title: string; badge?: string }) {
   return (
-    <button className="inline-flex items-center gap-2 rounded-2xl border border-white/10 bg-white/10 px-4 py-3 text-sm font-semibold text-white backdrop-blur transition-all hover:bg-white/15">
-      <Icon className="h-4 w-4 text-cyan-100" />
-      {label}
-      {typeof count === 'number' && count > 0 && <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[10px] font-black">{count}</span>}
-    </button>
-  );
-}
-
-function GlassMetric({ label, value, tone }: { label: string; value: string; tone: 'rose' | 'cyan' }) {
-  const toneClasses = tone === 'rose' ? 'from-rose-500/30 to-rose-400/10 text-rose-50' : 'from-cyan-500/30 to-cyan-400/10 text-cyan-50';
-  return (
-    <div className={cn('rounded-3xl border border-white/10 bg-gradient-to-br p-4 shadow-xl backdrop-blur', toneClasses)}>
-      <p className="text-[10px] font-black uppercase tracking-[0.3em] opacity-90">{label}</p>
-      <p className="mt-2 text-3xl font-black">{value}</p>
+    <div className="mb-4 flex items-center justify-between">
+      <h3 className="text-sm font-bold text-slate-900">{title}</h3>
+      {badge && (
+        <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
+          {badge}
+        </span>
+      )}
     </div>
   );
 }
 
-function StatCard({ label, value, icon: Icon, gradient }: { label: string; value: number | string; icon: typeof LayoutDashboard; gradient: string }) {
+function StatCard({ label, value, icon: Icon, gradient }: {
+  label: string;
+  value: number | string;
+  icon: typeof LayoutDashboard;
+  gradient: string;
+}) {
   return (
     <motion.div whileHover={{ y: -2 }} className="card overflow-hidden border-slate-200 p-5">
       <div className={cn('mb-4 inline-flex h-11 w-11 items-center justify-center rounded-2xl bg-gradient-to-br text-white shadow-lg', gradient)}>
@@ -942,355 +1536,110 @@ function StatCard({ label, value, icon: Icon, gradient }: { label: string; value
   );
 }
 
-const mockEscalations: Escalation[] = [
-  { id: 'ESC-101', user_id: 11, triggered_at: new Date().toISOString(), risk_type: 'physical', risk_level: 'HIGH', severity: 'HIGH', reason: 'BP crossed 145/95 and sleep quality has dropped.', escalation_reason: 'BP crossed 145/95 and sleep quality has dropped.', status: 'pending', created_at: new Date().toISOString() },
-  { id: 'ESC-102', user_id: 21, triggered_at: new Date().toISOString(), risk_type: 'mental', risk_level: 'MEDIUM', severity: 'MEDIUM', reason: 'PHQ-9 increased with reported anxiety spikes.', escalation_reason: 'PHQ-9 increased with reported anxiety spikes.', status: 'pending', created_at: new Date().toISOString() },
-];
-
-const mockClinicalNotes: Array<{ title: string; body: string; tag: string; time: string }> = [
-  { title: 'Consultation Summary', body: 'Patient reported mild headaches, improved adherence, and advised hydration with BP recheck in 24 hours.', tag: 'Consultation Notes', time: '12 min ago' },
-  { title: 'Follow-up Plan', body: 'Schedule maternal review, reinforce warning signs, and monitor fetal movement twice daily.', tag: 'Follow-up Notes', time: 'Today' },
-  { title: 'SOAP Draft', body: 'S: fatigue and stress. O: elevated BP. A: risk rising. P: close monitoring and telehealth follow-up.', tag: 'SOAP', time: 'Draft' },
-];
-
-const mockMedications: Array<{ name: string; dosage: string; frequency: string; instructions: string }> = [
-  { name: 'Labetalol', dosage: '100 mg', frequency: 'Twice daily', instructions: 'Monitor BP before and after dosing. Escalate if symptomatic hypotension occurs.' },
-  { name: 'Iron Supplement', dosage: '60 mg', frequency: 'Daily', instructions: 'Take with food and separate from calcium-rich meals when possible.' },
-  { name: 'Prenatal Vitamin', dosage: '1 tablet', frequency: 'Daily', instructions: 'Continue through pregnancy and postpartum as directed.' },
-  { name: 'Folic Acid', dosage: '5 mg', frequency: 'Daily', instructions: 'Support neural development and maintain medication adherence.' },
-];
-
-const telehealthRooms = [
-  { title: 'Video Session: Ananya Patel', subtitle: 'Pre-eclampsia follow-up', status: 'Live', action: 'Join Session' },
-  { title: 'Chat Consult: Priya Menon', subtitle: 'Medication clarification', status: 'Waiting', action: 'Open Chat' },
-  { title: 'Family Review: Meera Nair', subtitle: 'Shared care planning', status: 'Scheduled', action: 'Start Call' },
-];
-
-const waitingRoom = [
-  { name: 'Ananya Patel', reason: 'BP review and red-flag screening', wait: '2 min' },
-  { name: 'Fatima Ali', reason: 'Growth scan teleconsultation', wait: '8 min' },
-  { name: 'Riya Menon', reason: 'Medication reconciliation', wait: '14 min' },
-];
-
-function FeedItem({ title, time, kind }: { title: string; time: string; kind: string }) {
+function MiniStatCard({ label, value, tone }: { label: string; value: number | string; tone: string }) {
+  const colors: Record<string, string> = {
+    rose: 'border-rose-100 bg-rose-50 text-rose-700',
+    amber: 'border-amber-100 bg-amber-50 text-amber-700',
+    emerald: 'border-emerald-100 bg-emerald-50 text-emerald-700',
+    cyan: 'border-cyan-100 bg-cyan-50 text-cyan-700',
+    slate: 'border-slate-200 bg-slate-50 text-slate-700',
+  };
   return (
-    <div className="flex items-start gap-4 rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="mt-0.5 rounded-2xl bg-cyan-50 p-2 text-cyan-600">
-        <Activity className="h-4 w-4" />
-      </div>
-      <div className="flex-1">
-        <div className="flex items-start justify-between gap-3">
-          <p className="text-sm font-semibold text-slate-900">{title}</p>
-          <span className="rounded-full bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">{kind}</span>
-        </div>
-        <p className="mt-1 text-xs text-slate-500">{time}</p>
-      </div>
+    <div className={cn('rounded-2xl border p-4', colors[tone] || colors.slate)}>
+      <p className="text-[10px] font-bold uppercase tracking-widest opacity-80">{label}</p>
+      <p className="mt-2 text-2xl font-black">{value}</p>
     </div>
   );
 }
 
-function AppointmentRow({ time, patient, reason, status }: { time: string; patient: string; reason: string; status: string }) {
+function RiskPill({ level }: { level?: string | null }) {
+  const l = String(level || '').toUpperCase();
+  const colors: Record<string, string> = {
+    HIGH: 'bg-rose-100 text-rose-700',
+    MEDIUM: 'bg-amber-100 text-amber-700',
+    LOW: 'bg-emerald-100 text-emerald-700',
+  };
+  if (!l || !colors[l]) return <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-400">—</span>;
+  return <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest', colors[l])}>{l}</span>;
+}
+
+function StatusChip({ status }: { status: string }) {
+  const s = status?.toLowerCase();
+  const colors: Record<string, string> = {
+    pending: 'bg-amber-100 text-amber-700',
+    confirmed: 'bg-blue-100 text-blue-700',
+    completed: 'bg-emerald-100 text-emerald-700',
+    cancelled: 'bg-slate-100 text-slate-500',
+    resolved: 'bg-emerald-100 text-emerald-700',
+    active: 'bg-green-100 text-green-700',
+    scheduled: 'bg-blue-100 text-blue-700',
+    live: 'bg-green-100 text-green-700',
+    waiting: 'bg-amber-100 text-amber-700',
+  };
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-      <div>
-        <p className="text-sm font-semibold text-slate-900">{patient}</p>
-        <p className="text-xs text-slate-500">{reason}</p>
-      </div>
-      <div className="text-right">
-        <p className="text-sm font-bold text-slate-900">{time}</p>
-        <p className="text-xs text-emerald-600">{status}</p>
-      </div>
-    </div>
+    <span className={cn('rounded-full px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest', colors[s] || 'bg-slate-100 text-slate-500')}>
+      {status}
+    </span>
   );
 }
 
-function MiniStat({ label, value }: { label: string; value: string }) {
+function ActionButton({ label, onClick, loading: isLoading, variant }: {
+  label: string;
+  onClick: () => void;
+  loading?: boolean;
+  variant: 'primary' | 'danger' | 'success';
+}) {
+  const colors = {
+    primary: 'bg-primary-600 text-white hover:bg-primary-700',
+    danger: 'bg-rose-600 text-white hover:bg-rose-700',
+    success: 'bg-emerald-600 text-white hover:bg-emerald-700',
+  };
   return (
-    <div className="rounded-2xl border border-slate-200 bg-white p-3">
-      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-slate-900">{value}</p>
-    </div>
-  );
-}
-
-function PatientCard({ patient, index, onClick }: { patient: PatientSummary; index: number; onClick: () => void }) {
-  const risk = patient.latest_risk?.mental_risk_level || patient.latest_risk?.physical_risk_level || patient.latest_risk?.fetal_risk_level || 'LOW';
-  return (
-    <motion.button
-      initial={{ opacity: 0, y: 10 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: index * 0.02 }}
+    <button
       onClick={onClick}
-      className="card border-slate-200 text-left transition-all hover:border-primary-200 hover:shadow-md"
+      disabled={isLoading}
+      className={cn('inline-flex items-center gap-1.5 rounded-xl px-3 py-2 text-xs font-semibold transition-colors disabled:opacity-50', colors[variant])}
     >
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h4 className="font-semibold text-slate-950">{patient.name}</h4>
-          <p className="text-xs text-slate-500">{patient.email}</p>
-        </div>
-        <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest', getRiskBadge(String(risk)))}>{risk}</span>
-      </div>
-      <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-        <span>Week {patient.pregnancy_week || 'N/A'}</span>
-        <span>{patient.trimester || 'Trimester N/A'}</span>
-      </div>
-      <div className="mt-4 flex items-center justify-between text-xs text-slate-500">
-        <span>{patient.city || 'Location not set'}</span>
-        <Eye className="h-4 w-4 text-slate-400" />
-      </div>
-    </motion.button>
-  );
-}
-
-function QueuePatient({ patient, onClick }: { patient: PatientSummary; onClick: () => void }) {
-  return (
-    <button onClick={onClick} className="flex w-full items-center justify-between rounded-2xl border border-rose-100 bg-white px-3 py-3 text-left transition-colors hover:bg-rose-50/60">
-      <div>
-        <p className="text-sm font-semibold text-slate-900">{patient.name}</p>
-        <p className="text-xs text-slate-500">{patient.city || patient.email}</p>
-      </div>
-      <div className="text-right">
-        <p className="text-[10px] font-bold uppercase tracking-widest text-rose-600">{patient.latest_risk?.crisis_flag || 'Review'}</p>
-        <p className="text-xs text-slate-500">Week {patient.pregnancy_week || '--'}</p>
-      </div>
+      {isLoading && <RefreshCw className="h-3 w-3 animate-spin" />}
+      {label}
     </button>
   );
 }
 
-function EscalationCard({ item, onResolve }: { item: Escalation; onResolve: (id: string) => void }) {
-  const statusTone = item.status === 'resolved' ? 'emerald' : item.status === 'pending' ? 'amber' : 'rose';
+function VitalChip({ label, value }: { label: string; value: string }) {
   return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-        <div>
-          <div className="flex flex-wrap gap-2">
-            <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest', statusChipClass(statusTone))}>{item.status}</span>
-            <span className="rounded-full bg-slate-100 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-slate-500">
-              {item.severity || item.risk_level}
-            </span>
-          </div>
-          <p className="mt-3 text-sm font-semibold text-slate-900">{item.escalation_reason || item.reason}</p>
-          <p className="mt-1 text-xs text-slate-500">Triggered {formatDate(item.created_at || item.triggered_at)}</p>
-        </div>
-        {item.status === 'pending' && (
-          <button onClick={() => onResolve(item.id)} className="btn-secondary flex items-center gap-2 text-xs">
-            <CheckCircle2 className="h-3.5 w-3.5" /> Resolve
-          </button>
+    <div className="rounded-xl bg-slate-50 px-3 py-2 ring-1 ring-slate-200">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+      <p className="mt-0.5 text-xs font-semibold text-slate-700">{value}</p>
+    </div>
+  );
+}
+
+function SettingsField({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
+      <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{label}</p>
+      <p className="mt-1 text-sm font-medium text-slate-900">{value}</p>
+    </div>
+  );
+}
+
+function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: () => void }) {
+  return (
+    <div className="flex items-center justify-between">
+      <span className="text-sm text-slate-700">{label}</span>
+      <button
+        onClick={onChange}
+        className={cn(
+          'relative h-6 w-11 rounded-full transition-colors',
+          checked ? 'bg-primary-600' : 'bg-slate-300',
         )}
-      </div>
-    </div>
-  );
-}
-
-function HistoryMetric({ label, value, color }: { label: string; value: number; color: 'rose' | 'emerald' | 'amber' }) {
-  const colorClass = color === 'rose' ? 'text-rose-600 bg-rose-100' : color === 'emerald' ? 'text-emerald-600 bg-emerald-100' : 'text-amber-600 bg-amber-100';
-  return (
-    <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className={cn('rounded-full px-2.5 py-1 text-xs font-black', colorClass)}>{value}</span>
-    </div>
-  );
-}
-
-function TrendCard({ title, subtitle, variant }: { title: string; subtitle: string; variant?: 'mood' }) {
-  const chartData = variant === 'mood'
-    ? vitalsTrend.map((item) => ({ label: item.label, value: item.mood }))
-    : vitalsTrend.map((item) => ({ label: item.label, value: item.systolic }));
-
-  return (
-    <div className="rounded-3xl border border-slate-200 bg-slate-50 p-4">
-      <div className="mb-3">
-        <h4 className="text-sm font-bold text-slate-900">{title}</h4>
-        <p className="text-xs text-slate-500">{subtitle}</p>
-      </div>
-      <div className="h-48">
-        <ResponsiveContainer width="100%" height="100%">
-          <AreaChart data={chartData}>
-            <defs>
-              <linearGradient id={`trend-${title}`} x1="0" y1="0" x2="0" y2="1">
-                <stop offset="5%" stopColor="#0ea5e9" stopOpacity={0.4} />
-                <stop offset="95%" stopColor="#0ea5e9" stopOpacity={0.02} />
-              </linearGradient>
-            </defs>
-            <XAxis dataKey="label" hide />
-            <YAxis hide />
-            <Tooltip />
-            <Area type="monotone" dataKey="value" stroke="#0ea5e9" strokeWidth={2} fill={`url(#trend-${title})`} />
-          </AreaChart>
-        </ResponsiveContainer>
-      </div>
-    </div>
-  );
-}
-
-function SyncRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-      <span className="text-sm text-slate-600">{label}</span>
-      <span className="text-xs font-semibold text-emerald-600">{value}</span>
-    </div>
-  );
-}
-
-function AlertLine({ label, tone }: { label: string; tone: 'rose' | 'amber' | 'emerald' }) {
-  const toneClass = tone === 'rose' ? 'bg-rose-100 text-rose-700' : tone === 'amber' ? 'bg-amber-100 text-amber-700' : 'bg-emerald-100 text-emerald-700';
-  return (
-    <div className="flex items-center justify-between gap-3 rounded-2xl bg-white px-4 py-3 ring-1 ring-slate-200">
-      <span className="text-sm text-slate-700">{label}</span>
-      <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest', toneClass)}>{tone}</span>
-    </div>
-  );
-}
-
-function NoteCard({ note }: { note: { title: string; body: string; tag: string; time: string } }) {
-  return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <span className="rounded-full bg-primary-50 px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest text-primary-600">{note.tag}</span>
-        <span className="text-xs text-slate-400">{note.time}</span>
-      </div>
-      <h4 className="mt-3 text-sm font-semibold text-slate-900">{note.title}</h4>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{note.body}</p>
-    </div>
-  );
-}
-
-function MedicationCard({ medication }: { medication: { name: string; dosage: string; frequency: string; instructions: string } }) {
-  return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex items-center justify-between">
-        <h4 className="text-sm font-bold text-slate-900">{medication.name}</h4>
-        <Pill className="h-4 w-4 text-primary-500" />
-      </div>
-      <p className="mt-2 text-sm text-slate-600">{medication.dosage} · {medication.frequency}</p>
-      <p className="mt-2 text-xs leading-5 text-slate-500">{medication.instructions}</p>
-    </div>
-  );
-}
-
-function SessionCard({ room }: { room: any }) {
-  const navigate = useNavigate();
-  return (
-    <div className="card border-slate-200 bg-white hover:border-primary-200 transition-all group">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-bold text-slate-900">{room.title}</h4>
-          <p className="text-xs text-slate-500">{room.subtitle}</p>
-        </div>
-        <span className={cn(
-          "rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest",
-          room.status === 'ACTIVE' ? "bg-green-100 text-green-700" : "bg-emerald-100 text-emerald-700"
-        )}>
-          {room.status}
-        </span>
-      </div>
-      <button 
-        onClick={() => navigate(`/telemedicine/${room.id || 'DEMO_SESSION'}`)}
-        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 transition-all shadow-lg"
       >
-        {room.action} <PhoneCall className="h-4 w-4" />
+        <span className={cn(
+          'absolute top-0.5 left-0.5 h-5 w-5 rounded-full bg-white shadow transition-transform',
+          checked && 'translate-x-5',
+        )} />
       </button>
-    </div>
-  );
-}
-
-function WaitingRoomRow({ name, reason, wait }: { name: string; reason: string; wait: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl bg-white/5 px-4 py-3">
-      <div>
-        <p className="text-sm font-semibold text-white">{name}</p>
-        <p className="text-xs text-slate-300">{reason}</p>
-      </div>
-      <span className="text-xs font-semibold text-cyan-200">{wait}</span>
-    </div>
-  );
-}
-
-function SummaryTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl bg-white/10 p-4">
-      <p className="text-[10px] font-bold uppercase tracking-[0.3em] text-cyan-100">{label}</p>
-      <p className="mt-2 text-sm font-semibold text-white">{value}</p>
-    </div>
-  );
-}
-
-function RiskFactorRow({ label, impact }: { label: string; impact: string }) {
-  return (
-    <div className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
-      <span className="text-sm text-slate-700">{label}</span>
-      <span className="text-xs font-bold text-slate-500">{impact}</span>
-    </div>
-  );
-}
-
-function ReportCard({ report }: { report: { title: string; desc: string } }) {
-  return (
-    <div className="card border-slate-200 bg-white">
-      <FileText className="h-5 w-5 text-primary-500" />
-      <h4 className="mt-4 text-sm font-bold text-slate-900">{report.title}</h4>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{report.desc}</p>
-      <button className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-primary-600">
-        Export <ArrowUpRight className="h-4 w-4" />
-      </button>
-    </div>
-  );
-}
-
-function MessageCard({ message }: { message: { from: string; text: string; time: string; channel: string } }) {
-  return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-bold text-slate-900">{message.from}</h4>
-          <p className="text-xs text-slate-500">{message.channel}</p>
-        </div>
-        <span className="text-xs text-slate-400">{message.time}</span>
-      </div>
-      <p className="mt-3 text-sm leading-6 text-slate-600">{message.text}</p>
-    </div>
-  );
-}
-
-function TaskCard({ task }: { task: { title: string; priority: string; due: string } }) {
-  const tone = task.priority === 'high' ? 'rose' : task.priority === 'medium' ? 'amber' : 'emerald';
-  return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h4 className="text-sm font-semibold text-slate-900">{task.title}</h4>
-          <p className="text-xs text-slate-500">Due {task.due}</p>
-        </div>
-        <span className={cn('rounded-full px-2.5 py-1 text-[10px] font-bold uppercase tracking-widest', statusChipClass(tone as 'rose' | 'amber' | 'emerald'))}>
-          {task.priority}
-        </span>
-      </div>
-    </div>
-  );
-}
-
-function SettingsCard({ setting }: { setting: { title: string; desc: string } }) {
-  return (
-    <div className="card border-slate-200 bg-white">
-      <div className="flex items-center justify-between gap-3">
-        <h4 className="text-sm font-bold text-slate-900">{setting.title}</h4>
-        <Settings className="h-4 w-4 text-slate-400" />
-      </div>
-      <p className="mt-2 text-sm leading-6 text-slate-600">{setting.desc}</p>
-    </div>
-  );
-}
-
-function ProgressRow({ label, value }: { label: string; value: number }) {
-  return (
-    <div>
-      <div className="flex items-center justify-between text-xs font-semibold text-slate-500">
-        <span>{label}</span>
-        <span>{value}%</span>
-      </div>
-      <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-200">
-        <div className="h-full rounded-full bg-gradient-to-r from-primary-500 to-cyan-500" style={{ width: `${value}%` }} />
-      </div>
     </div>
   );
 }
@@ -1304,37 +1653,33 @@ function EmptyState({ icon: Icon, message }: { icon: typeof LayoutDashboard; mes
   );
 }
 
-function ChevronButtonIcon() {
-  return <ArrowRight className="h-4 w-4 text-slate-600" />;
-}
-
-function statusChipClass(tone: 'rose' | 'amber' | 'emerald') {
-  if (tone === 'rose') return 'bg-rose-100 text-rose-700';
-  if (tone === 'amber') return 'bg-amber-100 text-amber-700';
-  return 'bg-emerald-100 text-emerald-700';
-}
-
-function ScheduleRow({ time, patient, reason, status }: { time: string; patient: string; reason: string; status: string }) {
+function ViewSkeleton() {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-slate-200 bg-white px-4 py-3">
-      <div>
-        <p className="text-sm font-semibold text-slate-900">{patient}</p>
-        <p className="text-xs text-slate-500">{reason}</p>
+    <div className="space-y-6">
+      <div className="space-y-2">
+        <div className="h-4 w-24 animate-pulse rounded-full bg-slate-200" />
+        <div className="h-8 w-48 animate-pulse rounded-xl bg-slate-200" />
+        <div className="h-4 w-72 animate-pulse rounded-full bg-slate-200" />
       </div>
-      <div className="text-right">
-        <p className="text-sm font-bold text-slate-900">{time}</p>
-        <p className="text-xs text-emerald-600">{status}</p>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        {[...Array(4)].map((_, i) => (
+          <div key={i} className="h-32 animate-pulse rounded-3xl bg-slate-100" />
+        ))}
+      </div>
+      <div className="grid gap-4 xl:grid-cols-2">
+        <div className="h-64 animate-pulse rounded-3xl bg-slate-100" />
+        <div className="h-64 animate-pulse rounded-3xl bg-slate-100" />
       </div>
     </div>
   );
 }
 
-function InsightRow({ label, value }: { label: string; value: string }) {
+function SkeletonRows({ count }: { count: number }) {
   return (
-    <div className="flex items-center justify-between rounded-2xl border border-white/10 bg-white/5 px-4 py-3 text-sm">
-      <span className="text-slate-300">{label}</span>
-      <span className="font-semibold text-white">{value}</span>
+    <div className="space-y-3">
+      {[...Array(count)].map((_, i) => (
+        <div key={i} className="h-20 animate-pulse rounded-2xl bg-slate-100" />
+      ))}
     </div>
   );
 }
-

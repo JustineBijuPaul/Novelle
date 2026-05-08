@@ -30,7 +30,7 @@ export default function TelemedicinePage() {
         setMessages(chatRes.data);
       } catch (err) {
         toast.error("Failed to join session. It may have expired.");
-        navigate('/dashboard');
+        navigate('/');
       } finally {
         setLoading(false);
       }

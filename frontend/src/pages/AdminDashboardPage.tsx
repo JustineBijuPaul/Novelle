@@ -1,2802 +1,1682 @@
 import { useEffect, useState } from 'react';
-import { useLocation, Link } from 'react-router-dom';
+import { useLocation } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
-  Shield, Users, Building2, Stethoscope, Search, Plus, Edit3, Trash2,
-  X, Save, ChevronDown, ChevronUp, UserCheck, UserX, Activity, ShieldCheck,
-  Check, AlertTriangle, BarChart3, Sparkles, MapPin, ShieldAlert,
-  CreditCard, Zap, MessagesSquare, FileBarChart, Settings, Globe,
-  Terminal, Server, Database, Heart, ArrowUpRight,
-  TrendingUp, Clock, Info, MoreVertical, LayoutDashboard, UserCog, UserPlus,
-  Brain, Cpu, Layers, History, ChevronRight, PlayCircle, Settings2, TrendingDown, Target, Map, PieChart,
-  Siren, PhoneForwarded, AlertCircle, FileText, Download, DollarSign, Gem, Briefcase
+  Shield, Users, Building2, Stethoscope, Search, Plus, Trash2,
+  X, Save, Activity, ShieldCheck, Check, AlertTriangle, BarChart3,
+  CreditCard, MessagesSquare, FileBarChart, Settings, Globe,
+  Server, Database, Heart, TrendingUp, Clock, LayoutDashboard,
+  UserPlus, Brain, Cpu, Layers, ChevronRight, PlayCircle,
+  Target, Siren, AlertCircle, FileText, DollarSign,
+  RefreshCw, Wifi, WifiOff, Lock, Eye, Download,
+  Send, Megaphone, LifeBuoy, Plug, Archive, Sliders,
+  MonitorCheck, HardDrive, Gauge, ShieldAlert, UserCog, Landmark
 } from 'lucide-react';
-import { platformAdminService, mlopsService, complianceService } from '../services/endpoints';
+import { platformAdminService } from '../services/endpoints';
 import toast from 'react-hot-toast';
-import { cn } from '../utils/helpers';
 
-// ── AI Control Center View ──────────────────────────
+// ── Shared helpers ──────────────────────────────────────
 
-function AIControlCenterView({ data }: { data: any }) {
-  const [selectedModel, setSelectedModel] = useState<any>(null);
-  const [isRetraining, setIsRetraining] = useState(false);
-  const [showSettings, setShowSettings] = useState(false);
-  const [modelSettings, setModelSettings] = useState<any>(null);
-  const [registryModels, setRegistryModels] = useState<any[]>([]);
-  const [driftReports, setDriftReports] = useState<Record<string, any>>({});
+const fade = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 } };
 
-  useEffect(() => {
-    const fetchRegistry = async () => {
-      try {
-        const res = await mlopsService.listModels();
-        setRegistryModels(res.data);
-        
-        // Fetch drift for each model
-        const driftPromises = res.data.map((m: any) => mlopsService.getDriftReport(m.model_name));
-        const driftResults = await Promise.all(driftPromises);
-        const driftMap: any = {};
-        driftResults.forEach((r: any, i: number) => {
-          driftMap[res.data[i].model_name] = r.data;
-        });
-        setDriftReports(driftMap);
-      } catch (err) {
-        console.error("MLOps sync failed", err);
-      }
-    };
-    fetchRegistry();
-  }, []);
-
-  const handlePromote = async (modelId: string, status: string) => {
-    try {
-      await mlopsService.promoteModel(modelId, status as any);
-      toast.success(`Model successfully promoted to ${status}`);
-    } catch (err) {
-      toast.error("Promotion failed");
-    }
+function StatusBadge({ status, size = 'sm' }: { status: string; size?: 'sm' | 'md' }) {
+  const map: Record<string, string> = {
+    active: 'bg-emerald-100 text-emerald-700',
+    healthy: 'bg-emerald-100 text-emerald-700',
+    online: 'bg-emerald-100 text-emerald-700',
+    running: 'bg-emerald-100 text-emerald-700',
+    resolved: 'bg-emerald-100 text-emerald-700',
+    compliant: 'bg-emerald-100 text-emerald-700',
+    connected: 'bg-emerald-100 text-emerald-700',
+    enabled: 'bg-emerald-100 text-emerald-700',
+    open: 'bg-blue-100 text-blue-700',
+    pending: 'bg-amber-100 text-amber-700',
+    warning: 'bg-amber-100 text-amber-700',
+    in_progress: 'bg-blue-100 text-blue-700',
+    'in-progress': 'bg-blue-100 text-blue-700',
+    critical: 'bg-red-100 text-red-700',
+    high: 'bg-red-100 text-red-700',
+    error: 'bg-red-100 text-red-700',
+    inactive: 'bg-gray-100 text-gray-500',
+    disabled: 'bg-gray-100 text-gray-500',
+    offline: 'bg-gray-100 text-gray-500',
+    low: 'bg-emerald-100 text-emerald-700',
+    medium: 'bg-amber-100 text-amber-700',
   };
+  const cls = map[status?.toLowerCase()] ?? 'bg-gray-100 text-gray-600';
+  const pad = size === 'md' ? 'px-3 py-1 text-xs' : 'px-2 py-0.5 text-[11px]';
+  return <span className={`${cls} ${pad} rounded-full font-semibold capitalize inline-block`}>{status?.replace(/_/g, ' ')}</span>;
+}
 
-  if (!data?.models) return null;
-
-  const handleRetrain = async (modelName: string) => {
-    try {
-      setIsRetraining(true);
-      const loadingToast = toast.loading(`Initializing background retraining for ${modelName}...`);
-      await platformAdminService.retrainModel(modelName);
-      toast.dismiss(loadingToast);
-      toast.success('Retraining pipeline successfully initiated in non-repudiable background layer.');
-    } catch (error) {
-      toast.error('Retraining pipeline initialization failed.');
-    } finally {
-      setIsRetraining(false);
-    }
+function StatCard({ icon: Icon, label, value, sub, color = 'indigo' }: { icon: any; label: string; value: string | number; sub?: string; color?: string }) {
+  const ring: Record<string, string> = {
+    indigo: 'bg-indigo-50 text-indigo-600',
+    emerald: 'bg-emerald-50 text-emerald-600',
+    rose: 'bg-rose-50 text-rose-600',
+    amber: 'bg-amber-50 text-amber-600',
+    blue: 'bg-blue-50 text-blue-600',
+    purple: 'bg-purple-50 text-purple-600',
+    cyan: 'bg-cyan-50 text-cyan-600',
+    slate: 'bg-slate-100 text-slate-600',
   };
-
-  const handleUpdateSettings = async (modelName: string) => {
-    try {
-      await platformAdminService.updateModelSettings(modelName, modelSettings);
-      toast.success('Model hyperparameters updated and saved to persistent ledger.');
-      setShowSettings(false);
-      // Refresh data would be ideal here, but for now we just close
-    } catch (error) {
-      toast.error('Failed to update model settings.');
-    }
-  };
-
   return (
-    <div className="space-y-8 pb-20">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">AI Control Center</h3>
-             <p className="text-sm text-gray-500 font-medium">Platform-wide model governance & neural monitoring</p>
-          </div>
-          <div className="flex gap-4">
-             <button 
-               onClick={async () => {
-                 const res = await complianceService.getAuditLogs();
-                 toast.success('Live audit stream retrieved from non-repudiable ledger');
-                 console.log(res.data);
-               }}
-               className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2"
-             >
-                <History className="w-4 h-4" /> Audit Logs
-             </button>
-             <button 
-               onClick={() => toast.loading('Initializing secure model deployment pipeline...')}
-               className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2 shadow-xl shadow-primary-500/20"
-             >
-                <Plus className="w-5 h-5" /> Deploy Model
-             </button>
-          </div>
-       </div>
+    <motion.div {...fade} className="bg-white rounded-xl border border-gray-200 p-5 flex items-start gap-4 shadow-sm hover:shadow-md transition-shadow">
+      <div className={`p-3 rounded-xl ${ring[color] ?? ring.indigo}`}><Icon className="w-5 h-5" /></div>
+      <div className="min-w-0">
+        <p className="text-xs text-gray-500 font-medium uppercase tracking-wide">{label}</p>
+        <p className="text-2xl font-bold text-gray-900 mt-0.5">{value}</p>
+        {sub && <p className="text-xs text-gray-400 mt-0.5">{sub}</p>}
+      </div>
+    </motion.div>
+  );
+}
 
-       {/* Model Grid */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {data.models.map((model: any, i: number) => (
-            <motion.div 
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
-              animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm group hover:shadow-xl hover:shadow-primary-500/5 transition-all"
-            >
-               <div className="flex items-center justify-between mb-8">
-                  <div className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center",
-                    model.status === 'OPTIMAL' ? "bg-green-50 text-green-600" : "bg-amber-50 text-amber-600"
-                  )}>
-                     <Brain className="w-6 h-6" />
-                  </div>
-                  <span className={cn(
-                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest",
-                    model.status === 'OPTIMAL' ? "bg-green-500 text-white" : "bg-amber-500 text-white"
-                  )}>
-                    {model.status}
-                  </span>
-               </div>
-               
-               <h4 className="text-xl font-black text-gray-900 mb-1">{model.name}</h4>
-               <p className="text-xs text-gray-400 font-bold uppercase tracking-widest mb-6">Version {model.version}</p>
-
-               <div className="space-y-4">
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
-                     <span className="text-[10px] font-black text-gray-400 uppercase">Accuracy</span>
-                     <span className="text-sm font-black text-primary-600">{model.accuracy}%</span>
-                  </div>
-                  <div className="flex justify-between items-center p-3 bg-gray-50 rounded-2xl">
-                     <span className="text-[10px] font-black text-gray-400 uppercase">Avg Latency</span>
-                     <span className="text-sm font-black text-gray-900">{model.latency}</span>
-                  </div>
-               </div>
-
-               <button 
-                 onClick={() => setSelectedModel(model)}
-                 className="w-full mt-8 py-4 border border-gray-100 rounded-3xl text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:bg-primary-900 group-hover:text-white group-hover:border-primary-900 transition-all flex items-center justify-center gap-2"
-               >
-                  View Analytics <ChevronRight className="w-4 h-4" />
-               </button>
-            </motion.div>
-          ))}
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Prediction Analytics */}
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center justify-between mb-10">
-                <div>
-                   <h4 className="text-lg font-black text-gray-900">Neural Performance</h4>
-                   <p className="text-xs text-gray-400 font-medium">Real-time prediction accuracy trend</p>
-                </div>
-                <div className="px-4 py-2 bg-primary-50 rounded-xl text-primary-600 font-black text-xs">
-                   +2.4% vs L7D
-                </div>
-             </div>
-             
-             <div className="h-48 flex items-end gap-3 px-4">
-                {data.accuracy_trend.map((v: number, i: number) => (
-                  <div key={i} className="flex-1 bg-primary-500/10 rounded-t-xl relative group transition-all hover:bg-primary-500/20" style={{ height: `${v}%` }}>
-                     <div className="absolute top-0 left-0 right-0 h-1 bg-primary-500 rounded-full" />
-                     <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-primary-900 text-white text-[10px] font-black px-2 py-1 rounded-lg pointer-events-none">
-                        {v}%
-                     </div>
-                  </div>
-                ))}
-             </div>
-             <div className="mt-6 flex justify-between px-4">
-                {['00:00', '04:00', '08:00', '12:00', '16:00', '20:00'].map((t, i) => (
-                  <span key={i} className="text-[10px] font-black text-gray-300 uppercase">{t}</span>
-                ))}
-             </div>
-          </div>
-
-          {/* Model Confidence Distribution */}
-          <div className="bg-primary-900 rounded-[40px] p-8 text-white shadow-xl relative overflow-hidden">
-             <div className="relative z-10">
-                <div className="flex items-center justify-between mb-10">
-                   <div>
-                      <h4 className="text-lg font-black">Confidence Index</h4>
-                      <p className="text-xs text-white/60 font-medium">Platform-wide average confidence</p>
-                   </div>
-                   <div className="text-4xl font-black">{data.stats.avg_confidence}%</div>
-                </div>
-
-                <div className="space-y-6">
-                   {data.confidence_distribution.map((v: number, i: number) => (
-                     <div key={i} className="space-y-2">
-                        <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-white/40">
-                           <span>{(i + 5) * 10}% - {(i + 6) * 10}% Interval</span>
-                           <span>{v}% Density</span>
-                        </div>
-                        <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                           <motion.div 
-                             initial={{ width: 0 }}
-                             animate={{ width: `${v * 4}%` }}
-                             className="h-full bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.5)]" 
-                           />
-                        </div>
-                     </div>
-                   ))}
-                </div>
-             </div>
-             {/* Decorative Background Element */}
-             <div className="absolute -bottom-20 -right-20 w-64 h-64 bg-white/5 rounded-full blur-3xl pointer-events-none" />
-          </div>
-       </div>
-
-       {/* System Status Grid */}
-       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
-                <Zap className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Throughput</p>
-                <p className="text-lg font-black text-gray-900">{data.stats.throughput}</p>
-             </div>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-purple-50 rounded-2xl flex items-center justify-center text-purple-600">
-                <Layers className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Active Jobs</p>
-                <p className="text-lg font-black text-gray-900">{data.stats.active_jobs} Pipeline</p>
-             </div>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-green-50 rounded-2xl flex items-center justify-center text-green-600">
-                <Cpu className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Infra Load</p>
-                <p className="text-lg font-black text-gray-900">{data.stats.gpu_load}% GPU</p>
-             </div>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-red-600">
-                <ShieldAlert className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Failure Rate</p>
-                <p className="text-lg font-black text-gray-900">{data.stats.failures_24h}.00%</p>
-             </div>
-          </div>
-        </div>
-
-        {/* Analytics Side Drawer */}
-        <AnimatePresence>
-           {selectedModel && (
-             <>
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 onClick={() => {
-                   setSelectedModel(null);
-                   setShowSettings(false);
-                 }}
-                 className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
-               />
-               <motion.div 
-                 initial={{ x: '100%' }}
-                 animate={{ x: 0 }}
-                 exit={{ x: '100%' }}
-                 transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                 className="fixed right-0 top-0 bottom-0 w-[500px] bg-white z-[101] shadow-2xl p-12 overflow-y-auto"
-               >
-                  <div className="flex items-center justify-between mb-12">
-                     <div className="w-16 h-16 bg-primary-900 rounded-3xl flex items-center justify-center text-white">
-                        <Brain className="w-8 h-8" />
-                     </div>
-                     <button 
-                       onClick={() => {
-                         setSelectedModel(null);
-                         setShowSettings(false);
-                       }}
-                       className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-gray-900 transition-all"
-                     >
-                        <X className="w-6 h-6" />
-                     </button>
-                  </div>
-
-                  <div className="mb-12">
-                     <div className="flex items-center gap-3 mb-2">
-                        <h2 className="text-3xl font-black text-gray-900">{selectedModel.name}</h2>
-                        <span className="px-3 py-1 bg-green-500 text-white rounded-full text-[10px] font-black uppercase tracking-widest">
-                           {selectedModel.status}
-                        </span>
-                     </div>
-                     <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Production Engine • Version {selectedModel.version}</p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4 mb-12">
-                     <div className="bg-gray-50 rounded-3xl p-6">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Logic-Gates</p>
-                        <p className="text-xl font-black text-gray-900">12.4M Parameters</p>
-                     </div>
-                     <div className="bg-gray-50 rounded-3xl p-6">
-                        <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Avg Inference</p>
-                        <p className="text-xl font-black text-gray-900">{selectedModel.latency}</p>
-                     </div>
-                  </div>
-
-                  <div className="space-y-8">
-                    {showSettings ? (
-                      <motion.div 
-                        initial={{ opacity: 0, y: 10 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        className="bg-gray-50 rounded-[32px] p-8 border border-gray-100 space-y-6"
-                      >
-                         <h4 className="font-black text-gray-900 uppercase tracking-widest text-[10px] mb-2">Neural Configuration</h4>
-                         
-                         <div className="space-y-4">
-                            {[
-                              { label: 'Estimators (Trees)', key: 'n_estimators', type: 'number' },
-                              { label: 'Max Depth', key: 'max_depth', type: 'number' },
-                              { label: 'Learning Rate', key: 'learning_rate', type: 'number', step: '0.01' },
-                              { label: 'Training Samples', key: 'samples', type: 'number' }
-                            ].map((field) => (
-                              <div key={field.key} className="space-y-1.5">
-                                 <label className="text-[10px] font-black text-gray-400 uppercase tracking-tighter pl-1">{field.label}</label>
-                                 <input 
-                                   type={field.type}
-                                   step={field.step}
-                                   value={modelSettings?.[field.key] || ''}
-                                   onChange={(e) => setModelSettings({ ...modelSettings, [field.key]: parseFloat(e.target.value) })}
-                                   className="w-full bg-white border border-gray-200 rounded-xl px-4 py-2.5 text-sm font-bold focus:ring-2 focus:ring-primary-500/20 outline-none transition-all"
-                                 />
-                              </div>
-                            ))}
-                         </div>
-
-                         <div className="pt-4 flex gap-3">
-                            <button 
-                              onClick={() => handleUpdateSettings(selectedModel.name)}
-                              className="flex-1 bg-primary-900 text-white rounded-xl py-3 text-xs font-black uppercase tracking-widest shadow-lg shadow-primary-900/10"
-                            >
-                              Save Settings
-                            </button>
-                            <button 
-                              onClick={() => setShowSettings(false)}
-                              className="px-6 bg-white border border-gray-200 rounded-xl py-3 text-xs font-black text-gray-400 uppercase tracking-widest"
-                            >
-                              Cancel
-                            </button>
-                         </div>
-                      </motion.div>
-                    ) : (
-                      <>
-                        <div>
-                           <div className="flex items-center justify-between mb-6">
-                              <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs">Neural Confidence Trend</h4>
-                              <div className="flex items-center gap-2 text-green-500 text-[10px] font-black">
-                                 <TrendingUp className="w-3 h-3" /> STABLE
-                              </div>
-                           </div>
-                           <div className="h-40 flex items-end gap-2 bg-gray-50/50 p-6 rounded-3xl border border-dashed border-gray-200">
-                              {[40, 60, 45, 90, 85, 98, 92, 95].map((h, i) => (
-                                <div key={i} className="flex-1 bg-primary-900 rounded-t-lg transition-all hover:bg-primary-600" style={{ height: `${h}%` }} />
-                              ))}
-                           </div>
-                        </div>
-
-                        <div>
-                           <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-6">Internal Service Health</h4>
-                           <div className="space-y-4">
-                              {[
-                                { name: 'Model Weights API', status: 'HEALTHY', latency: '12ms' },
-                                { name: 'Vector Database', status: 'HEALTHY', latency: '4ms' },
-                                { name: 'Feature Engineering', status: 'DEGRADED', latency: '120ms' }
-                              ].map((s, i) => (
-                                <div key={i} className="flex items-center justify-between p-4 border border-gray-100 rounded-2xl">
-                                   <div className="flex items-center gap-3">
-                                      <div className={cn("w-2 h-2 rounded-full", s.status === 'HEALTHY' ? "bg-green-500" : "bg-amber-500")} />
-                                      <span className="text-sm font-black text-gray-700">{s.name}</span>
-                                   </div>
-                                   <span className="text-[10px] font-black text-gray-400">{s.latency}</span>
-                                </div>
-                              ))}
-                           </div>
-                        </div>
-                      </>
-                    )}
-                  </div>
-
-                   <div className="mt-12 flex gap-4">
-                      <button 
-                        disabled={isRetraining}
-                        onClick={() => handleRetrain(selectedModel.name)}
-                        className="flex-1 btn-primary rounded-2xl py-4 font-black text-sm shadow-xl shadow-primary-500/20 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-                      >
-                         {isRetraining ? (
-                           <>
-                             <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                             Retraining...
-                           </>
-                         ) : 'Retrain Model'}
-                      </button>
-                      <button 
-                        onClick={() => {
-                          setShowSettings(!showSettings);
-                          if (!showSettings) setModelSettings(selectedModel.settings);
-                        }}
-                        className={cn(
-                          "px-6 py-4 border rounded-2xl transition-all",
-                          showSettings ? "bg-primary-50 border-primary-200 text-primary-600" : "border-gray-100 text-gray-400 hover:bg-gray-50"
-                        )}
-                      >
-                         <Settings2 className="w-5 h-5" />
-                      </button>
-                   </div>
-               </motion.div>
-             </>
-           )}
-        </AnimatePresence>
-     </div>
-   );
- }
-
-// ── Platform Analytics View ────────────────────────
-
-function PlatformAnalyticsView({ data }: { data: any }) {
-  const [selectedMetric, setSelectedMetric] = useState<string | null>(null);
-  const [showGoals, setShowGoals] = useState(false);
-  const [goals, setGoals] = useState<any[]>([]);
-  const [isExporting, setIsExporting] = useState(false);
-
-  if (!data?.growth) return null;
-
-  const handleExport = async () => {
-    try {
-      setIsExporting(true);
-      const res = await platformAdminService.exportAnalyticsReport();
-      const blob = new Blob([JSON.stringify(res.data, null, 2)], { type: 'application/json' });
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `Novelle_Platform_Audit_${new Date().toISOString().split('T')[0]}.json`;
-      a.click();
-      toast.success('Platform audit report exported successfully');
-    } catch (err) {
-      toast.error('Report export failed');
-    } finally {
-      setIsExporting(false);
-    }
-  };
-
-  const handleShowGoals = async () => {
-    try {
-      const res = await platformAdminService.getStrategicGoals();
-      setGoals(res.data.goals);
-      setShowGoals(true);
-    } catch (err) {
-      toast.error('Failed to load strategic goals');
-    }
-  };
-
+function SectionHeader({ title, actions }: { title: string; actions?: React.ReactNode }) {
   return (
-    <div className="space-y-8 pb-20">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">Platform Intelligence</h3>
-             <p className="text-sm text-gray-500 font-medium">Cross-institutional clinical & business insights</p>
-          </div>
-          <div className="flex gap-4">
-             <button 
-               onClick={handleExport}
-               disabled={isExporting}
-               className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2"
-             >
-                <FileBarChart className="w-4 h-4" /> {isExporting ? 'Exporting...' : 'Export Report'}
-             </button>
-             <button 
-               onClick={handleShowGoals}
-               className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2 shadow-xl shadow-primary-500/20"
-             >
-                <Target className="w-5 h-5" /> Strategic Goals
-             </button>
-          </div>
-       </div>
-
-       {/* Top Metrics Grid */}
-       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 bg-green-50 rounded-xl flex items-center justify-center text-green-600">
-                   <Users className="w-5 h-5" />
-                </div>
-                <div className="flex items-center text-[10px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded-lg">
-                   <TrendingUp className="w-3 h-3 mr-1" /> 12%
-                </div>
-             </div>
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Total Patients</p>
-             <p className="text-2xl font-black text-gray-900">{data.growth?.patients?.[data.growth.patients.length - 1]?.toLocaleString() || '0'}</p>
-             
-             <button 
-               onClick={() => setSelectedMetric('patients')}
-               className="w-full mt-8 py-4 border border-gray-100 rounded-3xl text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:bg-primary-900 group-hover:text-white group-hover:border-primary-900 transition-all flex items-center justify-center gap-2"
-             >
-                View Analytics <ChevronRight className="w-4 h-4" />
-             </button>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 bg-blue-50 rounded-xl flex items-center justify-center text-blue-600">
-                   <Building2 className="w-5 h-5" />
-                </div>
-                <div className="flex items-center text-[10px] font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded-lg">
-                   <TrendingUp className="w-3 h-3 mr-1" /> 4%
-                </div>
-             </div>
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Active Hospitals</p>
-             <p className="text-2xl font-black text-gray-900">{data.growth.hospitals[data.growth.hospitals.length - 1]}</p>
-
-             <button 
-               onClick={() => setSelectedMetric('hospitals')}
-               className="w-full mt-8 py-4 border border-gray-100 rounded-3xl text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:bg-primary-900 group-hover:text-white group-hover:border-primary-900 transition-all flex items-center justify-center gap-2"
-             >
-                View Analytics <ChevronRight className="w-4 h-4" />
-             </button>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 bg-purple-50 rounded-xl flex items-center justify-center text-purple-600">
-                   <Activity className="w-5 h-5" />
-                </div>
-                <div className="flex items-center text-[10px] font-black text-green-600 bg-green-50 px-2 py-0.5 rounded-lg">
-                   <TrendingUp className="w-3 h-3 mr-1" /> 18%
-                </div>
-             </div>
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Outcome Improvement</p>
-             <p className="text-2xl font-black text-gray-900">+{data.health_insights.outcome_improvement}%</p>
-
-             <button 
-               onClick={() => setSelectedMetric('outcomes')}
-               className="w-full mt-8 py-4 border border-gray-100 rounded-3xl text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:bg-primary-900 group-hover:text-white group-hover:border-primary-900 transition-all flex items-center justify-center gap-2"
-             >
-                View Analytics <ChevronRight className="w-4 h-4" />
-             </button>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-8 shadow-sm">
-             <div className="flex items-center justify-between mb-4">
-                <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center text-red-600">
-                   <ShieldAlert className="w-5 h-5" />
-                </div>
-                <div className="flex items-center text-[10px] font-black text-red-600 bg-red-50 px-2 py-0.5 rounded-lg">
-                   <TrendingDown className="w-3 h-3 mr-1" /> 2%
-                </div>
-             </div>
-             <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">High Risk Density</p>
-             <p className="text-2xl font-black text-gray-900">{data.health_insights.high_risk_cases}%</p>
-
-             <button 
-               onClick={() => setSelectedMetric('risk')}
-               className="w-full mt-8 py-4 border border-gray-100 rounded-3xl text-[10px] font-black text-gray-400 uppercase tracking-widest group-hover:bg-primary-900 group-hover:text-white group-hover:border-primary-900 transition-all flex items-center justify-center gap-2"
-             >
-                View Analytics <ChevronRight className="w-4 h-4" />
-             </button>
-          </div>
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Growth Chart */}
-          <div className="bg-white rounded-[40px] border border-gray-100 p-10 shadow-sm">
-             <div className="flex items-center justify-between mb-10">
-                <div>
-                   <h4 className="text-xl font-black text-gray-900">Platform Scaling</h4>
-                   <p className="text-sm text-gray-500 font-medium">Monthly revenue & user growth velocity</p>
-                </div>
-                <div className="flex gap-2">
-                   <button className="px-3 py-1 bg-primary-50 text-primary-600 text-[10px] font-black rounded-lg">6 MONTHS</button>
-                </div>
-             </div>
-             
-             <div className="h-64 flex items-end gap-4 px-4">
-                {data.growth.revenue.map((v: number, i: number) => (
-                  <div key={i} className="flex-1 group relative h-full flex flex-col justify-end">
-                     {/* Revenue Bar */}
-                     <motion.div 
-                        initial={{ height: 0 }}
-                        animate={{ height: `${(v / 800) * 100}%` }}
-                        className="w-full bg-primary-500 rounded-t-xl relative z-10 hover:bg-primary-600 transition-all cursor-pointer"
-                     >
-                        <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-primary-900 text-white text-[10px] font-black px-2 py-1 rounded-lg pointer-events-none">
-                           ${v}k
-                        </div>
-                     </motion.div>
-                     {/* Patients Dot (Overlay) */}
-                     <div 
-                        className="absolute left-1/2 -translate-x-1/2 w-2 h-2 bg-purple-500 rounded-full border-2 border-white shadow-sm z-20"
-                        style={{ bottom: `${(data.growth.patients[i] / 15000) * 100}%` }}
-                     />
-                  </div>
-                ))}
-             </div>
-             <div className="mt-6 flex justify-between px-4 border-t border-gray-50 pt-4">
-                {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN'].map((m, i) => (
-                  <span key={i} className="text-[10px] font-black text-gray-300 uppercase tracking-widest">{m}</span>
-                ))}
-             </div>
-          </div>
-
-          {/* Regional Health Index */}
-          <div className="bg-primary-900 rounded-[40px] p-10 text-white shadow-xl relative overflow-hidden">
-             <div className="relative z-10 h-full flex flex-col">
-                <div className="flex items-center justify-between mb-10">
-                   <div>
-                      <h4 className="text-xl font-black">Regional Health Audits</h4>
-                      <p className="text-sm text-white/50 font-medium">Institutional health index by territory</p>
-                   </div>
-                   <Map className="w-8 h-8 text-white/20" />
-                </div>
-
-                <div className="flex-1 space-y-8">
-                   {data.regional_health.map((reg: any, i: number) => (
-                     <div key={i} className="space-y-3">
-                        <div className="flex justify-between items-end">
-                           <div>
-                              <p className="text-sm font-black">{reg.region}</p>
-                              <div className={cn(
-                                "text-[9px] font-black uppercase tracking-tighter px-1.5 py-0.5 rounded border inline-block",
-                                reg.risk_level === 'LOW' ? "bg-green-500/20 text-green-300 border-green-500/30" : 
-                                reg.risk_level === 'MEDIUM' ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : 
-                                "bg-red-500/20 text-red-300 border-red-500/30"
-                              )}>
-                                 {reg.risk_level} RISK
-                              </div>
-                           </div>
-                           <p className="text-2xl font-black">{reg.health_index}%</p>
-                        </div>
-                        <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                           <motion.div 
-                             initial={{ width: 0 }}
-                             animate={{ width: `${reg.health_index}%` }}
-                             className="h-full bg-white rounded-full" 
-                           />
-                        </div>
-                     </div>
-                   ))}
-                </div>
-             </div>
-             {/* Abstract Grid Pattern */}
-             <div className="absolute inset-0 opacity-5 pointer-events-none" style={{ backgroundImage: 'radial-gradient(#fff 1px, transparent 1px)', backgroundSize: '24px 24px' }} />
-          </div>
-       </div>
-
-       {/* Strategic Goals Modal */}
-       <AnimatePresence>
-          {showGoals && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 onClick={() => setShowGoals(false)}
-                 className="absolute inset-0 bg-black/40 backdrop-blur-sm"
-               />
-               <motion.div 
-                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                 className="relative w-full max-w-2xl bg-white rounded-[48px] p-10 shadow-2xl overflow-hidden"
-               >
-                  <div className="absolute top-0 right-0 p-8">
-                     <button onClick={() => setShowGoals(false)} className="p-2 hover:bg-gray-100 rounded-full transition-all">
-                        <X className="w-6 h-6 text-gray-400" />
-                     </button>
-                  </div>
-
-                  <div className="flex items-center gap-4 mb-8">
-                     <div className="w-16 h-16 bg-primary-900 rounded-3xl flex items-center justify-center text-white">
-                        <Target className="w-8 h-8" />
-                     </div>
-                     <div>
-                        <h3 className="text-3xl font-black text-gray-900">Strategic Governance</h3>
-                        <p className="text-gray-500 font-medium">Platform-wide KPIs & institutional targets</p>
-                     </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 gap-6 mb-8">
-                     {goals.map((goal, i) => (
-                       <div key={i} className="bg-gray-50 rounded-3xl p-8 border border-gray-100 group hover:border-primary-200 transition-all">
-                          <div className="flex items-center justify-between mb-4">
-                             <div>
-                                <h4 className="text-lg font-black text-gray-900">{goal.title}</h4>
-                                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">{goal.metric}</p>
-                             </div>
-                             <span className={cn(
-                               "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest",
-                               goal.status === 'ON_TRACK' ? "bg-green-500 text-white" : 
-                               goal.status === 'AT_RISK' ? "bg-red-500 text-white" : "bg-blue-500 text-white"
-                             )}>
-                                {goal.status.replace('_', ' ')}
-                             </span>
-                          </div>
-                          
-                          <div className="flex items-center gap-8">
-                             <div className="flex-1">
-                                <div className="flex justify-between text-[10px] font-black uppercase mb-2">
-                                   <span className="text-gray-400">Completion</span>
-                                   <span className="text-gray-900">{Math.round((goal.current / goal.target) * 100)}%</span>
-                                </div>
-                                <div className="h-2 bg-gray-200 rounded-full overflow-hidden">
-                                   <div 
-                                     className={cn(
-                                       "h-full rounded-full transition-all duration-1000",
-                                       goal.status === 'ON_TRACK' ? "bg-green-500" : 
-                                       goal.status === 'AT_RISK' ? "bg-red-500" : "bg-blue-500"
-                                     )} 
-                                     style={{ width: `${Math.min((goal.current / goal.target) * 100, 100)}%` }} 
-                                   />
-                                </div>
-                             </div>
-                             <div className="text-right">
-                                <p className="text-2xl font-black text-gray-900">{goal.current}{goal.unit}</p>
-                                <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Target: {goal.target}{goal.unit}</p>
-                             </div>
-                          </div>
-                       </div>
-                     ))}
-                  </div>
-
-                  <button 
-                    onClick={() => setShowGoals(false)}
-                    className="w-full btn-primary rounded-3xl py-4 font-black shadow-xl shadow-primary-500/20"
-                  >
-                     ACKNOWLEDGE TARGETS
-                  </button>
-               </motion.div>
-            </div>
-          )}
-       </AnimatePresence>
-
-       {/* Risk Distribution & Population Analytics */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm col-span-2">
-             <div className="flex items-center justify-between mb-8">
-                <h4 className="text-lg font-black text-gray-900">Maternal Risk Trends</h4>
-                <div className="flex items-center gap-4 text-xs font-black text-gray-400">
-                   <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 bg-primary-500 rounded-full" /> HIGH RISK
-                   </div>
-                   <div className="flex items-center gap-1.5">
-                      <div className="w-2 h-2 bg-gray-200 rounded-full" /> CONTROL GROUP
-                   </div>
-                </div>
-             </div>
-             <div className="h-40 flex items-end gap-1.5">
-                {data.risk_trends.map((v: number, i: number) => (
-                  <div key={i} className="flex-1 group relative">
-                     <motion.div 
-                        initial={{ height: 0 }}
-                        animate={{ height: `${v * 6}%` }}
-                        className="w-full bg-primary-500/10 rounded-t-lg group-hover:bg-primary-500/20 transition-all border-t-2 border-primary-500"
-                     />
-                  </div>
-                ))}
-             </div>
-             <p className="mt-6 text-xs text-center text-gray-400 font-bold uppercase tracking-widest">Global Risk Distribution - Last 6 Months</p>
-          </div>
-
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm flex flex-col justify-center text-center">
-             <div className="w-20 h-20 bg-primary-50 rounded-full flex items-center justify-center text-primary-600 mx-auto mb-6">
-                <PieChart className="w-10 h-10" />
-             </div>
-             <h4 className="text-xl font-black text-gray-900 mb-2">Care Efficiency</h4>
-             <p className="text-sm text-gray-500 font-medium mb-6">Platform-wide average care standard achievement</p>
-             <div className="text-5xl font-black text-primary-600 mb-2">{data.health_insights.avg_care_score}%</div>
-             <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">+5.2% ACHIEVED THIS MONTH</p>
-          </div>
-       </div>
-
-       {/* Metric Analytics Drawer */}
-       <AnimatePresence>
-          {selectedMetric && (
-            <>
-              <motion.div 
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                onClick={() => setSelectedMetric(null)}
-                className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100]"
-              />
-              <motion.div 
-                initial={{ x: '100%' }}
-                animate={{ x: 0 }}
-                exit={{ x: '100%' }}
-                transition={{ type: 'spring', damping: 25, stiffness: 200 }}
-                className="fixed right-0 top-0 bottom-0 w-[550px] bg-white z-[101] shadow-2xl p-12 overflow-y-auto"
-              >
-                 <div className="flex items-center justify-between mb-12">
-                    <div className="w-16 h-16 bg-primary-900 rounded-3xl flex items-center justify-center text-white">
-                       <Activity className="w-8 h-8" />
-                    </div>
-                    <button 
-                      onClick={() => setSelectedMetric(null)}
-                      className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 hover:text-gray-900 transition-all"
-                    >
-                       <X className="w-6 h-6" />
-                    </button>
-                 </div>
-
-                 <div className="mb-12">
-                    <h2 className="text-3xl font-black text-gray-900 capitalize">{selectedMetric.replace('_', ' ')} Analytics</h2>
-                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">Production Database Audit • {new Date().toLocaleDateString()}</p>
-                 </div>
-
-                 {selectedMetric === 'patients' && (
-                   <div className="space-y-12">
-                      <div className="grid grid-cols-2 gap-4">
-                         <div className="bg-gray-50 rounded-3xl p-6 border border-gray-100">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Pregnant Users</p>
-                            <p className="text-3xl font-black text-primary-900">{data.demographics?.pregnant || 0}</p>
-                         </div>
-                         <div className="bg-gray-50 rounded-3xl p-6 border border-gray-100">
-                            <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-1">Postpartum</p>
-                            <p className="text-3xl font-black text-primary-900">{data.demographics?.postpartum || 0}</p>
-                         </div>
-                      </div>
-
-                      <div>
-                         <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-6">Clinical Trimester Velocity</h4>
-                         <div className="space-y-6">
-                            {[
-                              { label: 'First Trimester', val: data.demographics?.trimesters?.first || 0, color: 'bg-blue-500' },
-                              { label: 'Second Trimester', val: data.demographics?.trimesters?.second || 0, color: 'bg-purple-500' },
-                              { label: 'Third Trimester', val: data.demographics?.trimesters?.third || 0, color: 'bg-pink-500' }
-                            ].map((t, i) => (
-                              <div key={i} className="space-y-2">
-                                 <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-gray-400">
-                                    <span>{t.label}</span>
-                                    <span className="text-gray-900">{t.val} patients</span>
-                                 </div>
-                                 <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
-                                    <motion.div 
-                                      initial={{ width: 0 }}
-                                      animate={{ width: data.demographics?.pregnant ? `${(t.val / data.demographics.pregnant) * 100}%` : '0%' }}
-                                      className={cn("h-full rounded-full", t.color)}
-                                    />
-                                 </div>
-                              </div>
-                            ))}
-                         </div>
-                      </div>
-
-                      <div>
-                         <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-6">Clinical Baselines (Avg)</h4>
-                         <div className="grid grid-cols-2 gap-8">
-                            <div>
-                               <p className="text-4xl font-black text-gray-900">{data.clinical_stats?.avg_hb} g/dL</p>
-                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Hemoglobin Index</p>
-                            </div>
-                            <div>
-                               <p className="text-4xl font-black text-gray-900">{data.clinical_stats?.avg_age} yrs</p>
-                               <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Mean Patient Age</p>
-                            </div>
-                         </div>
-                      </div>
-                   </div>
-                 )}
-
-                 {selectedMetric === 'hospitals' && (
-                   <div className="space-y-8">
-                      <h4 className="font-black text-gray-900 uppercase tracking-widest text-xs mb-6">Institutional Performance Index</h4>
-                      <div className="space-y-4">
-                         {data.regional_health.map((reg: any, i: number) => (
-                           <div key={i} className="p-6 bg-gray-50 rounded-3xl border border-gray-100 flex items-center justify-between">
-                              <div>
-                                 <p className="text-sm font-black text-gray-900">{reg.region}</p>
-                                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest mt-1">Oversight Priority: {reg.risk_level}</p>
-                              </div>
-                              <div className="text-right">
-                                 <p className="text-2xl font-black text-primary-900">{reg.health_index}%</p>
-                                 <p className="text-[10px] font-black text-green-600 uppercase tracking-widest">Stable</p>
-                              </div>
-                           </div>
-                         ))}
-                      </div>
-                   </div>
-                 )}
-
-                 {(selectedMetric === 'outcomes' || selectedMetric === 'risk') && (
-                   <div className="space-y-8">
-                      <div className="bg-primary-900 rounded-[40px] p-8 text-white">
-                         <h4 className="text-xl font-black mb-2">Neural Risk Forecast</h4>
-                         <p className="text-sm text-white/50 mb-8">Aggregated population risk vectors across all clinical domains.</p>
-                         <div className="space-y-6">
-                            {['Physical Risk', 'Mental Risk', 'Fetal Health'].map((r, i) => (
-                              <div key={i} className="space-y-2">
-                                 <div className="flex justify-between text-[10px] font-black uppercase tracking-widest text-white/40">
-                                    <span>{r}</span>
-                                    <span className="text-white">{85 - i * 5}% Optimal</span>
-                                 </div>
-                                 <div className="h-1.5 bg-white/10 rounded-full overflow-hidden">
-                                    <div className="h-full bg-white rounded-full" style={{ width: `${85 - i * 5}%` }} />
-                                 </div>
-                              </div>
-                            ))}
-                         </div>
-                      </div>
-                   </div>
-                 )}
-
-                 <div className="mt-12">
-                    <button className="w-full btn-primary rounded-2xl py-4 font-black text-sm shadow-xl shadow-primary-500/20">
-                       Export Detailed Dataset (.CSV)
-                    </button>
-                 </div>
-              </motion.div>
-            </>
-          )}
-       </AnimatePresence>
+    <div className="flex items-center justify-between mb-4">
+      <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
+      {actions}
     </div>
   );
 }
 
-// ── Escalation Monitor View ───────────────────────
-
-function EscalationMonitorView({ data }: { data: any }) {
-  const [selectedEscalation, setSelectedEscalation] = useState<any>(null);
-  const [auditData, setAuditData] = useState<any>(null);
-  const [isAuditing, setIsAuditing] = useState(false);
-  const [isPriorityOnly, setIsPriorityOnly] = useState(false);
-
-  if (!data?.critical_cases) return null;
-
-  const handleAudit = async (escId: number) => {
-    try {
-      setIsAuditing(true);
-      const res = await platformAdminService.getEscalationAudit(escId);
-      setAuditData(res.data);
-      setSelectedEscalation(escId);
-    } catch (err) {
-      toast.error('Failed to retrieve escalation audit trail');
-    } finally {
-      setIsAuditing(false);
-    }
-  };
-
-  const filteredCases = isPriorityOnly 
-    ? data.critical_cases.filter((c: any) => c.risk === 'CRITICAL' || c.risk === 'EMERGENCY')
-    : data.critical_cases;
-
+function Loader() {
   return (
-    <div className={cn("space-y-8 pb-20 transition-all duration-500", isPriorityOnly && "bg-red-50/30 p-8 rounded-[60px] ring-4 ring-red-500/10")}>
-       <div className="flex items-center justify-between">
-          <div>
-             <div className="flex items-center gap-3 mb-1">
-                <h3 className="text-2xl font-black text-gray-900">Escalation Monitor</h3>
-                {isPriorityOnly && (
-                  <span className="px-3 py-1 bg-red-600 text-white text-[10px] font-black rounded-full animate-pulse uppercase tracking-widest">
-                    High-Priority Triage Active
-                  </span>
-                )}
-             </div>
-             <p className="text-sm text-gray-500 font-medium">Real-time global oversight of high-risk clinical events</p>
-          </div>
-          <div className="flex gap-4">
-             <button 
-               onClick={() => {
-                 setIsPriorityOnly(false);
-                 toast.success('Institutional governance oversight activated: High-precision auditing enabled');
-               }}
-               className={cn(
-                 "px-6 py-3 border rounded-2xl text-sm font-black transition-all flex items-center gap-2",
-                 !isPriorityOnly ? "bg-primary-900 text-white border-primary-900 shadow-xl shadow-primary-900/20" : "bg-white border-gray-100 text-gray-600 hover:bg-gray-50"
-               )}
-             >
-                <ShieldCheck className="w-4 h-4" /> Governance Mode
-             </button>
-             <button 
-               onClick={() => {
-                 setIsPriorityOnly(true);
-                 toast.error('Emergency Response Protocol initialized: Global facility channels prioritized');
-               }}
-               className={cn(
-                 "rounded-2xl px-6 py-3 flex items-center gap-2 transition-all",
-                 isPriorityOnly 
-                   ? "bg-red-600 text-white shadow-xl shadow-red-600/40 ring-4 ring-red-600/10" 
-                   : "bg-white border border-gray-100 text-red-600 hover:bg-red-50"
-               )}
-             >
-                <Siren className="w-5 h-5" /> Emergency Protocol
-             </button>
-          </div>
-       </div>
-
-       {/* Live Escalation Feed */}
-       <div className={cn(
-         "bg-white rounded-[40px] border shadow-sm overflow-hidden transition-all duration-500",
-         isPriorityOnly ? "border-red-200" : "border-gray-100"
-       )}>
-          <div className={cn(
-            "px-8 py-6 border-b flex items-center justify-between transition-colors",
-            isPriorityOnly ? "bg-red-50/50 border-red-100" : "bg-gray-50/30 border-gray-50"
-          )}>
-             <div className="flex items-center gap-2">
-                <div className={cn("w-2 h-2 rounded-full animate-pulse", isPriorityOnly ? "bg-red-600" : "bg-red-500")} />
-                <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">
-                  {isPriorityOnly ? 'Priority Emergency Stream' : 'Active High-Risk Stream'}
-                </h4>
-             </div>
-             <div className="text-[10px] font-black text-gray-400 uppercase tracking-widest">
-                Last updated: 12 seconds ago
-             </div>
-          </div>
-          <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse">
-                <thead>
-                   <tr className={cn(
-                     "border-b transition-colors",
-                     isPriorityOnly ? "bg-red-50/20 border-red-50" : "bg-gray-50/20 border-gray-50"
-                   )}>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Case ID</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Patient / Hospital</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Condition</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Risk Level</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Wait Time</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Oversight</th>
-                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                   <AnimatePresence mode="popLayout">
-                     {filteredCases.map((esc: any) => (
-                       <motion.tr 
-                         key={esc.id}
-                         layout
-                         initial={{ opacity: 0, x: -20 }}
-                         animate={{ opacity: 1, x: 0 }}
-                         exit={{ opacity: 0, scale: 0.95 }}
-                         className="group hover:bg-gray-50/50 transition-all"
-                       >
-                          <td className="px-8 py-6">
-                             <span className="text-xs font-black text-gray-400">#{esc.id}</span>
-                          </td>
-                          <td className="px-8 py-6">
-                             <div>
-                                <p className="text-sm font-black text-gray-900">{esc.patient}</p>
-                                <p className="text-[10px] text-gray-400 font-bold uppercase">{esc.hospital}</p>
-                             </div>
-                          </td>
-                          <td className="px-8 py-6">
-                             <span className="text-xs font-bold text-gray-600">{esc.type}</span>
-                          </td>
-                          <td className="px-8 py-6">
-                             <span className={cn(
-                               "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border",
-                               esc.risk === 'CRITICAL' ? "bg-red-900 text-white border-red-900 shadow-lg shadow-red-900/20" :
-                               esc.risk === 'EMERGENCY' ? "bg-red-50 text-red-700 border-red-100" :
-                               "bg-amber-50 text-amber-700 border-amber-100"
-                             )}>
-                                {esc.risk}
-                             </span>
-                          </td>
-                          <td className="px-8 py-6">
-                             <div className="flex items-center gap-2">
-                                <Clock className={cn("w-3 h-3", esc.timer.includes('m') && parseInt(esc.timer) < 10 ? "text-red-500 animate-pulse" : "text-gray-400")} />
-                                <span className="text-xs font-black text-gray-900">{esc.timer}</span>
-                             </div>
-                          </td>
-                          <td className="px-8 py-6">
-                             <div className="flex items-center gap-2">
-                                <div className={cn("w-1.5 h-1.5 rounded-full", esc.status === 'PENDING' ? "bg-amber-500" : "bg-green-500")} />
-                                <span className="text-[10px] font-black uppercase tracking-widest">{esc.status}</span>
-                             </div>
-                          </td>
-                          <td className="px-8 py-6 text-right">
-                             <button 
-                                onClick={() => handleAudit(esc.db_id)}
-                                disabled={isAuditing && selectedEscalation === esc.db_id}
-                                className={cn(
-                                  "px-4 py-2 text-[10px] font-black rounded-xl transition-all disabled:opacity-50",
-                                  isPriorityOnly ? "bg-red-600 text-white hover:bg-red-700" : "bg-primary-900 text-white hover:bg-black"
-                                )}
-                             >
-                                {isAuditing && selectedEscalation === esc.db_id ? 'AUDITING...' : 'AUDIT CASE'}
-                             </button>
-                          </td>
-                       </motion.tr>
-                     ))}
-                   </AnimatePresence>
-                   {filteredCases.length === 0 && (
-                     <tr>
-                        <td colSpan={7} className="px-8 py-20 text-center">
-                           <div className="flex flex-col items-center justify-center text-gray-400">
-                              <ShieldCheck className="w-12 h-12 mb-4 opacity-20" />
-                              <p className="text-lg font-black">No Priority Cases Detected</p>
-                              <p className="text-xs font-medium">All clinical metrics are currently within stable oversight parameters.</p>
-                           </div>
-                        </td>
-                     </tr>
-                   )}
-                </tbody>
-             </table>
-          </div>
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {/* Institutional Response Audits */}
-          <div className="bg-white rounded-[40px] border border-gray-100 p-10 shadow-sm">
-             <div className="flex items-center justify-between mb-10">
-                <div>
-                   <h4 className="text-xl font-black text-gray-900">Hospital Performance</h4>
-                   <p className="text-sm text-gray-500 font-medium">Critical response velocity monitoring</p>
-                </div>
-                <div className="px-4 py-2 bg-gray-50 rounded-xl text-gray-400 font-black text-[10px] uppercase">
-                   AVG: {data.stats.avg_response_time}
-                </div>
-             </div>
-             
-             <div className="space-y-6">
-                {data.hospital_performance.map((hosp: any, i: number) => (
-                  <div key={i} className="group cursor-pointer">
-                     <div className="flex justify-between items-center mb-2">
-                        <div>
-                           <p className="text-sm font-black text-gray-900">{hosp.name}</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase">{hosp.load}% Network Load</p>
-                        </div>
-                        <div className="text-right">
-                           <p className="text-lg font-black text-primary-600">{hosp.response}</p>
-                           <p className="text-[9px] text-gray-400 font-black uppercase">RESPONSE TIME</p>
-                        </div>
-                     </div>
-                     <div className="h-2 bg-gray-50 rounded-full overflow-hidden">
-                        <motion.div 
-                           initial={{ width: 0 }}
-                           animate={{ width: `${(10 - parseFloat(hosp.response)) * 10}%` }}
-                           className="h-full bg-primary-500 rounded-full"
-                        />
-                     </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-
-          {/* Alert Distribution */}
-          <div className="bg-red-600 rounded-[40px] p-10 text-white shadow-xl relative overflow-hidden">
-             <div className="relative z-10">
-                <div className="flex items-center justify-between mb-10">
-                   <div>
-                      <h4 className="text-xl font-black">Escalation Velocity</h4>
-                      <p className="text-sm text-white/60 font-medium">Platform-wide emergency trajectory</p>
-                   </div>
-                   <AlertCircle className="w-8 h-8 text-white/30" />
-                </div>
-
-                <div className="flex-1 space-y-8">
-                   <div className="flex justify-between items-end border-b border-white/10 pb-6">
-                      <div>
-                         <p className="text-xs font-black uppercase tracking-widest text-white/50">Active Emergencies</p>
-                         <p className="text-4xl font-black">{data.stats.active_emergencies}</p>
-                      </div>
-                      <div className="text-right">
-                         <p className="text-xs font-black uppercase tracking-widest text-white/50">Unresolved (24h)</p>
-                         <p className="text-4xl font-black text-amber-300">{data.stats.unresolved_24h}</p>
-                      </div>
-                   </div>
-                   
-                   <div className="space-y-4 pt-2">
-                      <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-4">Response Efficiency Trend</p>
-                      <div className="h-24 flex items-end gap-2">
-                         {data.response_trend.map((v: number, i: number) => (
-                           <motion.div 
-                              key={i}
-                              initial={{ height: 0 }}
-                              animate={{ height: `${(10 - v) * 10}%` }}
-                              className="flex-1 bg-white/20 rounded-t-lg border-t-2 border-white/60 hover:bg-white/40 transition-all cursor-pointer relative group"
-                           >
-                              <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-white text-red-600 text-[10px] font-black px-2 py-1 rounded-lg pointer-events-none">
-                                 {v}m
-                              </div>
-                           </motion.div>
-                         ))}
-                      </div>
-                      <div className="flex justify-between pt-2">
-                         <span className="text-[9px] font-black text-white/30 uppercase">6H AGO</span>
-                         <span className="text-[9px] font-black text-white/30 uppercase">NOW</span>
-                      </div>
-                   </div>
-                </div>
-             </div>
-             {/* Background Glow */}
-             <div className="absolute top-0 right-0 w-64 h-64 bg-white/10 rounded-full blur-3xl" />
-          </div>
-       </div>
-
-       {/* Global Analytics Preview */}
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-red-50 rounded-2xl flex items-center justify-center text-red-600">
-                <Siren className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Total Escalations</p>
-                <p className="text-lg font-black text-gray-900">{data.stats.total_resolved.toLocaleString()}</p>
-             </div>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-amber-50 rounded-2xl flex items-center justify-center text-amber-600">
-                <PhoneForwarded className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Transfer Rate</p>
-                <p className="text-lg font-black text-gray-900">4.2%</p>
-             </div>
-          </div>
-          <div className="bg-white rounded-3xl border border-gray-100 p-6 flex items-center gap-4 shadow-sm">
-             <div className="w-12 h-12 bg-blue-50 rounded-2xl flex items-center justify-center text-blue-600">
-                <Activity className="w-6 h-6" />
-             </div>
-             <div>
-                <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Surv. Accuracy</p>
-                <p className="text-lg font-black text-gray-900">99.8%</p>
-             </div>
-          </div>
-       </div>
-
-       {/* Audit Modal */}
-       <AnimatePresence>
-          {selectedEscalation && auditData && (
-            <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 onClick={() => setSelectedEscalation(null)}
-                 className="absolute inset-0 bg-black/60 backdrop-blur-sm"
-               />
-               <motion.div 
-                 initial={{ opacity: 0, scale: 0.9, y: 20 }}
-                 animate={{ opacity: 1, scale: 1, y: 0 }}
-                 exit={{ opacity: 0, scale: 0.9, y: 20 }}
-                 className="relative w-full max-w-4xl bg-white rounded-[48px] shadow-2xl overflow-hidden flex flex-col max-h-[90vh]"
-               >
-                  <div className="p-10 border-b border-gray-100 flex items-center justify-between bg-gray-50/50">
-                     <div className="flex items-center gap-4">
-                        <div className="w-12 h-12 bg-red-600 rounded-2xl flex items-center justify-center text-white shadow-lg shadow-red-600/20">
-                           <Siren className="w-6 h-6" />
-                        </div>
-                        <div>
-                           <h3 className="text-2xl font-black text-gray-900">Case Audit: #{auditData.escalation.id}</h3>
-                           <p className="text-xs text-gray-500 font-bold uppercase tracking-widest">Global Clinical Oversight • Non-Repudiable Log</p>
-                        </div>
-                     </div>
-                     <button 
-                       onClick={() => setSelectedEscalation(null)}
-                       className="w-12 h-12 bg-white border border-gray-100 rounded-2xl flex items-center justify-center text-gray-400 hover:text-gray-900 transition-all"
-                     >
-                        <X className="w-6 h-6" />
-                     </button>
-                  </div>
-
-                  <div className="flex-1 overflow-y-auto p-10 space-y-10">
-                     <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-                        <div className="space-y-4">
-                           <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Patient Profile</h4>
-                           <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100">
-                              <p className="text-lg font-black text-gray-900">{auditData.patient.name}</p>
-                              <p className="text-xs text-gray-500 mb-4">{auditData.patient.email}</p>
-                              <button className="text-[10px] font-black text-primary-600 hover:underline">VIEW FULL EHR</button>
-                           </div>
-                        </div>
-                        <div className="space-y-4">
-                           <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Institutional Care</h4>
-                           <div className="p-6 bg-gray-50 rounded-3xl border border-gray-100">
-                              <p className="text-lg font-black text-gray-900">{auditData.hospital.name}</p>
-                              <p className="text-xs text-gray-500 mb-4">{auditData.hospital.location}</p>
-                              <button className="text-[10px] font-black text-primary-600 hover:underline">FACILITY STATS</button>
-                           </div>
-                        </div>
-                        <div className="space-y-4">
-                           <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Escalation Metadata</h4>
-                           <div className="p-6 bg-gray-900 rounded-3xl text-white shadow-xl">
-                              <p className="text-xs font-black uppercase tracking-widest opacity-50 mb-1">Risk Signature</p>
-                              <p className="text-lg font-black mb-4">{auditData.escalation.risk_type.toUpperCase()} / {auditData.escalation.risk_level}</p>
-                              <div className="flex items-center gap-2">
-                                 <Clock className="w-3 h-3 opacity-50" />
-                                 <span className="text-[10px] font-bold">{new Date(auditData.escalation.triggered_at).toLocaleString()}</span>
-                              </div>
-                           </div>
-                        </div>
-                     </div>
-
-                     <div className="space-y-6">
-                        <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Trigger Reason & Neural Insight</h4>
-                        <div className="p-8 bg-red-50 border border-red-100 rounded-[32px]">
-                           <p className="text-red-900 font-medium leading-relaxed italic">
-                              "{auditData.escalation.reason || 'No specific reason provided by trigger engine.'}"
-                           </p>
-                        </div>
-                     </div>
-
-                     {auditData.escalation.doctor_notes && (
-                       <div className="space-y-6">
-                          <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Clinical Response Notes</h4>
-                          <div className="p-8 bg-blue-50 border border-blue-100 rounded-[32px]">
-                             <p className="text-blue-900 font-medium leading-relaxed">
-                                {auditData.escalation.doctor_notes}
-                             </p>
-                          </div>
-                       </div>
-                     )}
-
-                     <div className="grid grid-cols-2 gap-8">
-                        <div className="bg-gray-50 p-6 rounded-3xl flex items-center justify-between border border-gray-100">
-                           <div>
-                              <p className="text-[10px] font-black text-gray-400 uppercase">Resolution Status</p>
-                              <p className="text-sm font-black text-gray-900 uppercase">{auditData.escalation.status}</p>
-                           </div>
-                           <div className={cn("w-3 h-3 rounded-full", auditData.escalation.status === 'resolved' ? 'bg-green-500' : 'bg-amber-500')} />
-                        </div>
-                        <div className="bg-gray-50 p-6 rounded-3xl border border-gray-100">
-                           <p className="text-[10px] font-black text-gray-400 uppercase">Closure Timestamp</p>
-                           <p className="text-sm font-black text-gray-900">
-                              {auditData.escalation.resolved_at ? new Date(auditData.escalation.resolved_at).toLocaleString() : 'PENDING ACTION'}
-                           </p>
-                        </div>
-                     </div>
-                  </div>
-
-                  <div className="p-10 bg-gray-50 border-t border-gray-100 flex gap-4">
-                     <button 
-                       onClick={() => setSelectedEscalation(null)}
-                       className="flex-1 py-4 bg-white border border-gray-200 rounded-2xl text-xs font-black text-gray-500 uppercase tracking-widest hover:bg-gray-100 transition-all"
-                     >
-                        CLOSE AUDIT
-                     </button>
-                     <button 
-                       onClick={() => toast.success('Secure case report is being compiled for download')}
-                       className="flex-[2] py-4 bg-primary-900 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-primary-900/20 hover:bg-black transition-all"
-                     >
-                        DOWNLOAD CASE REPORT (PDF)
-                     </button>
-                  </div>
-               </motion.div>
-            </div>
-          )}
-       </AnimatePresence>
+    <div className="flex items-center justify-center py-24">
+      <RefreshCw className="w-6 h-6 animate-spin text-indigo-500" />
     </div>
   );
 }
 
-// ── Billing & Subscriptions View ──────────────────
-
-function BillingSubscriptionsView({ data }: { data: any }) {
-  if (!data?.plans || !data?.stats) return null;
-
-  return (
-    <div className="space-y-8 pb-20">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">Revenue Command Center</h3>
-             <p className="text-sm text-gray-500 font-medium">Global SaaS monetization & institutional billing governance</p>
-          </div>
-          <div className="flex gap-4">
-             <button className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2">
-                <FileText className="w-4 h-4" /> Billing Policy
-             </button>
-             <button className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2 shadow-xl shadow-primary-500/20">
-                <Plus className="w-5 h-5" /> Create Plan
-             </button>
-          </div>
-       </div>
-
-       {/* Financial Stats Grid */}
-       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <div className="bg-primary-900 rounded-[40px] p-8 text-white shadow-xl">
-             <p className="text-[10px] font-black uppercase tracking-widest text-white/40 mb-1">Monthly Recurring Revenue</p>
-             <p className="text-3xl font-black">${(data.stats.mrr / 1000).toFixed(1)}k</p>
-             <div className="mt-4 flex items-center text-[10px] font-black text-green-400 bg-white/5 px-2 py-1 rounded-lg w-fit">
-                <TrendingUp className="w-3 h-3 mr-1" /> +12.5%
-             </div>
-          </div>
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Annual Run Rate</p>
-             <p className="text-3xl font-black text-gray-900">${(data.stats.arr / 1000000).toFixed(2)}M</p>
-             <p className="mt-4 text-[10px] font-black text-gray-400">Projection for FY 2024</p>
-          </div>
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Avg Hospital LTV</p>
-             <p className="text-3xl font-black text-gray-900">${data.stats.avg_hospital_ltv.toLocaleString()}</p>
-             <p className="mt-4 text-[10px] font-black text-blue-600 uppercase tracking-widest">High Retentivity</p>
-          </div>
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <p className="text-[10px] font-black uppercase tracking-widest text-gray-400 mb-1">Net Churn Rate</p>
-             <p className="text-3xl font-black text-gray-900">{(data.stats.churn_rate * 100).toFixed(1)}%</p>
-             <div className="mt-4 flex items-center text-[10px] font-black text-green-600 bg-green-50 px-2 py-1 rounded-lg w-fit">
-                Optimal Performance
-             </div>
-          </div>
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {/* Subscription Plans */}
-          <div className="bg-white rounded-[40px] border border-gray-100 p-10 shadow-sm col-span-2">
-             <div className="flex items-center justify-between mb-10">
-                <h4 className="text-xl font-black text-gray-900">Institutional Plans</h4>
-                <div className="flex gap-2">
-                   <button className="p-2 hover:bg-gray-50 rounded-xl transition-all">
-                      <Settings className="w-5 h-5 text-gray-400" />
-                   </button>
-                </div>
-             </div>
-             
-             <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {data.plans.map((plan: any, i: number) => (
-                  <motion.div 
-                    key={i}
-                    whileHover={{ y: -5 }}
-                    className="p-6 bg-gray-50 rounded-3xl border border-gray-100 group transition-all hover:bg-primary-900 hover:text-white"
-                  >
-                     <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-primary-600 mb-6 group-hover:bg-white/10 group-hover:text-white">
-                        <Gem className="w-5 h-5" />
-                     </div>
-                     <h5 className="text-sm font-black mb-1">{plan.name}</h5>
-                     <p className="text-[10px] font-bold uppercase tracking-widest opacity-50 mb-6">{plan.hospitals} Hospitals</p>
-                     
-                     <div className="space-y-2">
-                        <p className="text-lg font-black">${(plan.revenue / 1000).toFixed(0)}k</p>
-                        <div className={cn(
-                          "text-[9px] font-black uppercase tracking-widest flex items-center gap-1",
-                          plan.growth > 0 ? "text-green-500 group-hover:text-green-300" : "text-red-500 group-hover:text-red-300"
-                        )}>
-                           {plan.growth > 0 ? <TrendingUp className="w-3 h-3" /> : <TrendingDown className="w-3 h-3" />}
-                           {Math.abs(plan.growth)}% Growth
-                        </div>
-                     </div>
-                  </motion.div>
-                ))}
-             </div>
-          </div>
-
-          {/* Revenue Velocity Chart */}
-          <div className="bg-white rounded-[40px] border border-gray-100 p-10 shadow-sm">
-             <div className="flex items-center justify-between mb-8">
-                <h4 className="text-lg font-black text-gray-900">Revenue Velocity</h4>
-                <div className="w-2 h-2 bg-primary-500 rounded-full animate-pulse" />
-             </div>
-             <div className="h-48 flex items-end gap-2">
-                {data.revenue_trend.map((v: number, i: number) => (
-                  <div key={i} className="flex-1 bg-primary-500/10 rounded-t-lg relative group transition-all hover:bg-primary-500/20" style={{ height: `${(v / 300) * 100}%` }}>
-                     <div className="absolute top-0 left-0 right-0 h-1 bg-primary-500 rounded-full" />
-                     <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-primary-900 text-white text-[10px] font-black px-2 py-1 rounded-lg pointer-events-none">
-                        ${v}k
-                     </div>
-                  </div>
-                ))}
-             </div>
-             <div className="mt-6 flex justify-between px-2">
-                {['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN'].map((m, i) => (
-                  <span key={i} className="text-[9px] font-black text-gray-300 uppercase">{m}</span>
-                ))}
-             </div>
-          </div>
-       </div>
-
-       {/* Global Invoice Stream */}
-       <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="px-8 py-6 border-b border-gray-50 flex items-center justify-between">
-             <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">Global Institutional Invoices</h4>
-             <button className="text-[10px] font-black text-primary-600 uppercase tracking-widest hover:underline">View All Invoices</button>
-          </div>
-          <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse">
-                <thead>
-                   <tr className="bg-gray-50/30">
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Invoice ID</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Hospital Entity</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Billing Cycle</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Amount</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
-                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                   {data.recent_invoices.map((inv: any) => (
-                     <tr key={inv.id} className="group hover:bg-gray-50 transition-all">
-                        <td className="px-8 py-6">
-                           <span className="text-xs font-black text-gray-900">{inv.id}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-3">
-                              <div className="w-8 h-8 bg-gray-100 rounded-lg flex items-center justify-center text-gray-400 group-hover:bg-primary-900 group-hover:text-white transition-all">
-                                 <Building2 className="w-4 h-4" />
-                              </div>
-                              <span className="text-sm font-black text-gray-900">{inv.hospital}</span>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className="text-xs font-bold text-gray-400">{inv.date}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className="text-sm font-black text-gray-900">${inv.amount.toLocaleString()}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className={cn(
-                             "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border",
-                             inv.status === 'PAID' ? "bg-green-50 text-green-700 border-green-100" : "bg-amber-50 text-amber-700 border-amber-100"
-                           )}>
-                              {inv.status}
-                           </span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <button className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all">
-                              <Download className="w-4 h-4" />
-                           </button>
-                        </td>
-                     </tr>
-                   ))}
-                </tbody>
-             </table>
-          </div>
-       </div>
-    </div>
-  );
+function EmptyState({ message }: { message: string }) {
+  return <p className="text-center text-gray-400 py-12 text-sm">{message}</p>;
 }
 
-export default function AdminDashboardPage() {
-  const location = useLocation();
-  const path = location.pathname;
+// ── OVERVIEW VIEW ───────────────────────────────────────
+
+function OverviewView() {
   const [data, setData] = useState<any>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    setData(null);
-    fetchDashboardData();
-  }, [path]);
+    platformAdminService.getOverview().then(r => setData(r.data)).catch(() => toast.error('Failed to load overview')).finally(() => setLoading(false));
+  }, []);
 
-  const fetchDashboardData = async () => {
-    setLoading(true);
-    try {
-      if (path === '/admin') {
-        const res = await platformAdminService.getOverview();
-        setData(res.data);
-      } else if (path === '/admin/organizations') {
-        const res = await platformAdminService.listOrganizations();
-        setData(res.data);
-      } else if (path === '/admin/ai-control') {
-        const res = await platformAdminService.getAiMetrics();
-        setData(res.data);
-      } else if (path === '/admin/analytics') {
-        const res = await platformAdminService.getGlobalAnalytics();
-        setData(res.data);
-      } else if (path === '/admin/escalations') {
-        const res = await platformAdminService.getGlobalEscalations();
-        setData(res.data);
-      } else if (path === '/admin/billing') {
-        const res = await platformAdminService.getBillingData();
-        setData(res.data);
-      } else if (path === '/admin/infrastructure') {
-        const res = await platformAdminService.getInfrastructure();
-        setData(res.data);
-      } else if (path === '/admin/hospitals') {
-        const res = await platformAdminService.listHospitals();
-        setData(res.data);
-      } else if (path === '/admin/users') {
-        const res = await platformAdminService.listGlobalUsers();
-        setData(res.data);
-      }
-    } catch (err) {
-      toast.error('Failed to load platform data');
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const renderContent = () => {
-    switch (path) {
-      case '/admin':
-        return <PlatformOverview data={data} />;
-      case '/admin/organizations':
-        return <OrganizationsView data={data} />;
-      case '/admin/ai-control':
-        return <AIControlCenterView data={data} />;
-      case '/admin/infrastructure':
-        return <InfrastructureView data={data} />;
-      case '/admin/hospitals':
-        return <HospitalsView data={data} refresh={fetchDashboardData} />;
-      case '/admin/users':
-        return <UsersManagementView data={data} refresh={fetchDashboardData} />;
-      case '/admin/analytics':
-        return <PlatformAnalyticsView data={data} />;
-      case '/admin/escalations':
-        return <EscalationMonitorView data={data} />;
-      case '/admin/billing':
-        return <BillingSubscriptionsView data={data} />;
-      default:
-        return (
-          <div className="flex flex-col items-center justify-center py-20 text-gray-400">
-            <Settings className="w-16 h-16 mb-4 animate-spin-slow opacity-20" />
-            <p className="text-xl font-display font-bold">Module Under Construction</p>
-            <p className="text-sm">We are building this enterprise feature for you.</p>
-          </div>
-        );
-    }
-  };
-
-  if (loading && !data) {
-    return (
-      <div className="flex items-center justify-center h-[70vh]">
-        <div className="relative">
-          <div className="w-20 h-20 border-4 border-primary-100 border-t-primary-600 rounded-full animate-spin" />
-          <Shield className="w-8 h-8 text-primary-600 absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
-        </div>
-      </div>
-    );
-  }
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No overview data" />;
 
   return (
-    <div className="min-h-screen pb-20 space-y-8 animate-fade-in">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-             <span className="px-2 py-0.5 bg-primary-900 text-primary-100 text-[10px] font-black rounded uppercase tracking-widest">Global Admin</span>
-             <span className="w-1.5 h-1.5 rounded-full bg-green-500 animate-pulse" />
-          </div>
-          <h1 className="text-3xl font-display font-black text-gray-900 flex items-center gap-3">
-             {getPageTitle(path)}
-          </h1>
-        </div>
-        
-        <div className="flex items-center gap-3">
-           <div className="flex -space-x-2">
-              {[1, 2, 3].map(i => (
-                <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center overflow-hidden">
-                  <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${i + 10}`} alt="Admin" />
-                </div>
-              ))}
-           </div>
-           <button className="p-2.5 bg-white border border-gray-100 rounded-2xl shadow-sm hover:bg-gray-50 transition-all relative">
-              <ShieldAlert className="w-5 h-5 text-red-500" />
-              <span className="absolute -top-1 -right-1 w-4 h-4 bg-red-600 text-white text-[10px] font-black rounded-full flex items-center justify-center border-2 border-white">3</span>
-           </button>
-        </div>
+    <motion.div {...fade} className="space-y-6">
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <StatCard icon={Users} label="Total Users" value={data.total_users ?? 0} color="indigo" />
+        <StatCard icon={Heart} label="Patients" value={data.total_patients ?? 0} color="rose" />
+        <StatCard icon={Stethoscope} label="Doctors" value={data.total_doctors ?? 0} color="emerald" />
+        <StatCard icon={Building2} label="Hospitals" value={data.total_hospitals ?? 0} color="blue" />
+        <StatCard icon={Activity} label="Active Sessions" value={data.active_sessions ?? 0} color="cyan" />
+        <StatCard icon={AlertTriangle} label="Critical Escalations" value={data.critical_escalations ?? 0} color="rose" />
       </div>
 
-      {renderContent()}
-    </div>
-  );
-}
-
-function getPageTitle(path: string) {
-  const titles: any = {
-    '/admin': 'Platform Command Center',
-    '/admin/organizations': 'Global Organizations',
-    '/admin/ai-control': 'AI Intelligence Hub',
-    '/admin/infrastructure': 'Infrastructure Telemetry',
-    '/admin/users': 'Global Identity Management',
-    '/admin/analytics': 'Ecosystem Analytics',
-    '/admin/billing': 'Revenue & Monetization'
-  };
-  return titles[path] || 'Administrative Hub';
-}
-
-// ── Platform Overview ────────────────────────────────
-
-function PlatformOverview({ data }: { data: any }) {
-  if (!data) return null;
-  const { stats, revenue, health, activity } = data;
-
-  return (
-    <div className="space-y-8">
-      {/* Top Stats */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-        <KPIWidget label="Total Revenue (MRR)" value={`$${(revenue.mrr / 1000).toFixed(0)}k`} subtext={`+${revenue.growth}% growth`} icon={TrendingUp} color="blue" />
-        <KPIWidget label="Active Hospitals" value={stats.hospitals} subtext="Across 12 regions" icon={Building2} color="purple" />
-        <KPIWidget label="Global Patients" value={stats.patients} subtext="Real-time monitoring" icon={Users} color="pink" />
-        <KPIWidget label="Critical Cases" value={stats.escalations} subtext="System-wide alerts" icon={ShieldAlert} color="red" />
-      </div>
-
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* AI Analytics Center */}
-        <div className="lg:col-span-2 bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm space-y-8">
-           <div className="flex items-center justify-between">
-              <div>
-                 <h3 className="text-xl font-black text-gray-900">AI Performance Matrix</h3>
-                 <p className="text-sm text-gray-400 font-medium italic">Prediction accuracy vs load across all clusters</p>
-              </div>
-              <div className="flex gap-2">
-                 <span className="px-3 py-1 bg-green-50 text-green-700 rounded-full text-xs font-black uppercase tracking-widest border border-green-100">Optimal</span>
-              </div>
-           </div>
-           
-           <div className="h-[300px] w-full bg-gray-50 rounded-[32px] border border-dashed border-gray-200 flex items-center justify-center relative overflow-hidden">
-              {/* Mock Chart Visualization */}
-              <div className="absolute inset-0 p-8 flex items-end gap-2">
-                 {[40, 70, 45, 90, 65, 85, 45, 100, 70, 80, 50, 90].map((h, i) => (
-                   <div key={i} className="flex-1 bg-primary-500/20 rounded-t-lg relative group transition-all hover:bg-primary-500/40" style={{ height: `${h}%` }}>
-                      <div className="absolute top-0 left-0 right-0 h-1 bg-primary-600 rounded-full" />
-                      <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 bg-gray-900 text-white text-[10px] px-2 py-1 rounded-lg pointer-events-none transition-all">
-                        {h}%
-                      </div>
-                   </div>
-                 ))}
-              </div>
-              <Activity className="w-12 h-12 text-gray-200" />
-           </div>
-
-           <div className="grid grid-cols-3 gap-6 pt-4">
-              <MiniStat label="Avg Accuracy" value="94.2%" trend="+0.5%" />
-              <MiniStat label="Latency" value="240ms" trend="-12ms" />
-              <MiniStat label="False Positives" value="0.8%" trend="-0.1%" />
-           </div>
-        </div>
-
-        {/* System Health Sidebar */}
-        <div className="space-y-6">
-           <div className="bg-primary-900 rounded-[40px] p-8 text-white shadow-xl">
-              <h3 className="text-lg font-black mb-6 flex items-center gap-2">
-                 <Zap className="w-5 h-5 text-amber-400" />
-                 System Health
-              </h3>
-              <div className="space-y-6">
-                 <HealthBar label="API Uptime" value={health.api_uptime} status="Stable" />
-                 <HealthBar label="Database Load" value={health.db_load} status="Normal" />
-                 <div className="pt-4 border-t border-primary-800 space-y-4">
-                    <div className="flex items-center justify-between text-xs font-bold text-primary-200 uppercase tracking-widest">
-                       <span>Infrastructure</span>
-                       <span className="text-green-400">All Systems Go</span>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3">
-                       <div className="bg-primary-800/50 rounded-2xl p-3 border border-primary-700/50">
-                          <p className="text-[10px] text-primary-300 font-bold mb-1">Queue Health</p>
-                          <p className="text-sm font-black">{health.queue_status}</p>
-                       </div>
-                       <div className="bg-primary-800/50 rounded-2xl p-3 border border-primary-700/50">
-                          <p className="text-[10px] text-primary-300 font-bold mb-1">AI Engine</p>
-                          <p className="text-sm font-black">{health.ai_status}</p>
-                       </div>
-                    </div>
-                 </div>
-              </div>
-           </div>
-
-           {/* Global Risk Heatmap Placeholder */}
-           <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm h-[320px] flex flex-col">
-              <div className="flex items-center justify-between mb-6">
-                 <h4 className="text-sm font-black text-gray-900 uppercase tracking-widest">Risk Distribution</h4>
-                 <Globe className="w-5 h-5 text-primary-500" />
-              </div>
-              <div className="flex-1 bg-gray-50 rounded-[32px] border border-gray-100 flex items-center justify-center text-gray-300 relative overflow-hidden">
-                 <MapPin className="w-12 h-12 opacity-10" />
-                 <div className="absolute inset-0 flex items-center justify-center">
-                    <div className="w-32 h-32 bg-primary-500/10 rounded-full animate-ping" />
-                 </div>
-                 <p className="absolute bottom-6 text-[10px] font-black text-gray-400 uppercase tracking-widest">Interactive Map Layer</p>
-              </div>
-           </div>
-        </div>
-      </div>
-
-      {/* Activity Feed */}
-      <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-         <div className="flex items-center justify-between mb-8">
-            <div>
-               <h3 className="text-xl font-black text-gray-900">Live Platform Activity</h3>
-               <p className="text-sm text-gray-400 font-medium">Real-time audit stream from all organizations</p>
-            </div>
-            <button className="text-primary-600 text-xs font-black uppercase tracking-widest flex items-center gap-1">
-               View All Logs <ArrowUpRight className="w-4 h-4" />
-            </button>
-         </div>
-
-         <div className="space-y-4">
-            {Array.isArray(activity) && activity.map((item: any) => (
-              <div key={item.id} className="flex items-center gap-6 p-4 hover:bg-gray-50 rounded-[24px] transition-all group">
-                 <div className="w-12 h-12 bg-gray-50 rounded-2xl flex items-center justify-center text-gray-400 group-hover:bg-primary-50 group-hover:text-primary-600 transition-all shrink-0">
-                    <Clock className="w-5 h-5" />
-                 </div>
-                 <div className="flex-1">
-                    <div className="flex items-center justify-between mb-1">
-                       <h4 className="text-sm font-black text-gray-900">{item.event}</h4>
-                       <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{item.time}</span>
-                    </div>
-                    <p className="text-xs text-gray-500 font-medium italic">{item.details}</p>
-                 </div>
-                 <div className="flex gap-2">
-                    <span className="px-2 py-1 bg-gray-100 text-gray-600 rounded-lg text-[10px] font-black uppercase tracking-widest group-hover:bg-primary-100 group-hover:text-primary-700 transition-all">Audit</span>
-                    <button className="p-2 text-gray-400 hover:text-gray-900"><MoreVertical className="w-4 h-4" /></button>
-                 </div>
+      <div className="grid lg:grid-cols-3 gap-6">
+        <div className="lg:col-span-2 bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Platform Snapshot" />
+          <div className="grid sm:grid-cols-2 gap-4 text-sm">
+            {[
+              { label: 'Total Risk Assessments', value: data.total_risk_assessments ?? data.risk_assessments ?? '-' },
+              { label: 'AI Predictions Today', value: data.ai_predictions_today ?? '-' },
+              { label: 'Avg Response Time', value: data.avg_response_time ?? '-' },
+              { label: 'System Uptime', value: data.uptime ?? '99.9%' },
+              { label: 'Data Processed', value: data.data_processed ?? '-' },
+              { label: 'Active Integrations', value: data.active_integrations ?? '-' },
+            ].map((s, i) => (
+              <div key={i} className="flex justify-between py-2 border-b border-gray-100">
+                <span className="text-gray-500">{s.label}</span>
+                <span className="font-semibold text-gray-800">{s.value}</span>
               </div>
             ))}
-         </div>
-      </div>
-    </div>
-  );
-}
-
-// ── Organizations View ───────────────────────────────
-
-function OrganizationsView({ data }: { data: any }) {
-  if (!data) return null;
-
-  return (
-    <div className="space-y-8">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">Network Overview</h3>
-             <p className="text-sm text-gray-500 font-medium">Managing 2 multi-hospital organizations</p>
           </div>
-          <button className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2">
-             <Plus className="w-5 h-5" /> Register Organization
-          </button>
-       </div>
+        </div>
 
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          {Array.isArray(data) && data.map((org: any) => (
-            <motion.div 
-              key={org.id}
-              whileHover={{ y: -5 }}
-              className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm hover:shadow-md transition-all relative overflow-hidden group"
-            >
-               <div className="absolute top-0 right-0 p-8">
-                  <span className={cn(
-                    "px-3 py-1 rounded-full text-[10px] font-black uppercase tracking-widest border",
-                    org.plan === 'ENTERPRISE' ? "bg-purple-50 text-purple-700 border-purple-100" : "bg-blue-50 text-blue-700 border-blue-100"
-                  )}>
-                    {org.plan}
-                  </span>
-               </div>
+        <div className="bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl p-6 text-white shadow-sm">
+          <div className="flex items-center gap-2 mb-3"><DollarSign className="w-5 h-5 opacity-80" /><span className="text-sm font-medium opacity-80">Monthly Recurring Revenue</span></div>
+          <p className="text-3xl font-bold">${typeof data.revenue === 'number' ? data.revenue.toLocaleString() : (data.mrr?.toLocaleString() ?? data.revenue ?? '0')}</p>
+          <p className="text-xs mt-2 opacity-70">{data.revenue_growth ?? 'Updated just now'}</p>
+        </div>
+      </div>
 
-               <div className="space-y-6">
-                  <div className="w-16 h-16 bg-gray-50 rounded-3xl flex items-center justify-center text-primary-600 group-hover:bg-primary-50 transition-all">
-                     <Building2 className="w-8 h-8" />
-                  </div>
-                  
-                  <div>
-                     <h4 className="text-xl font-black text-gray-900 mb-1">{org.name}</h4>
-                     <p className="text-sm text-gray-400 font-medium flex items-center gap-2">
-                        <MapPin className="w-3.5 h-3.5" /> 12 Hospital Nodes
-                     </p>
-                  </div>
-
-                  <div className="grid grid-cols-2 gap-4">
-                     <div className="p-4 bg-gray-50 rounded-[24px] border border-gray-100">
-                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Status</p>
-                        <p className="text-sm font-black text-green-600 flex items-center gap-1.5">
-                           <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {org.status}
-                        </p>
-                     </div>
-                     <div className="p-4 bg-gray-50 rounded-[24px] border border-gray-100">
-                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">Compliance</p>
-                        <p className="text-sm font-black text-gray-900">{org.compliance}</p>
-                     </div>
-                  </div>
-
-                  <div className="flex items-center justify-between pt-4 border-t border-gray-50">
-                     <div className="flex -space-x-2">
-                        {[1, 2, 3, 4].map(i => (
-                          <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-gray-100 flex items-center justify-center overflow-hidden">
-                            <img src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${org.name}${i}`} alt="Admin" />
-                          </div>
-                        ))}
-                        <div className="w-8 h-8 rounded-full border-2 border-white bg-primary-100 flex items-center justify-center text-[10px] font-black text-primary-700">
-                           +2
-                        </div>
-                     </div>
-                     <button className="px-4 py-2 bg-gray-900 text-white text-xs font-black rounded-xl hover:bg-black transition-all">
-                        Manage Organization
-                     </button>
-                  </div>
-               </div>
-            </motion.div>
-          ))}
-       </div>
-    </div>
+      {data.recent_activity && data.recent_activity.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Recent Activity" />
+          <div className="space-y-3 max-h-64 overflow-y-auto">
+            {data.recent_activity.map((a: any, i: number) => (
+              <div key={i} className="flex items-start gap-3 text-sm py-2 border-b border-gray-50 last:border-0">
+                <Activity className="w-4 h-4 text-indigo-400 mt-0.5 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-gray-700">{a.description ?? a.action ?? a.message}</p>
+                  <p className="text-xs text-gray-400 mt-0.5">{a.timestamp ?? a.time ?? ''}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-// ── Hospitals View ──────────────────────────────────
+// ── ORGANIZATIONS VIEW ──────────────────────────────────
 
-function HospitalsView({ data, refresh }: { data: any, refresh: () => void }) {
-  const [showAddModal, setShowAddModal] = useState(false);
-  const [editingHospital, setEditingHospital] = useState<any>(null);
-  const [viewMode, setViewMode] = useState<'list' | 'regional'>('list');
-  const [formData, setFormData] = useState({
-    name: '', address: '', city: '', state: '', zip_code: '', phone: '', email: ''
-  });
-  const [regionalStats, setRegionalStats] = useState<any[]>([]);
+function OrganizationsView() {
+  const [orgs, setOrgs] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    if (viewMode === 'regional') {
-      platformAdminService.getRegionalStats().then(res => setRegionalStats(res.data));
-    }
-  }, [viewMode]);
+    platformAdminService.listOrganizations().then(r => {
+      const d = r.data;
+      setOrgs(Array.isArray(d) ? d : d?.organizations ?? []);
+    }).catch(() => toast.error('Failed to load organizations')).finally(() => setLoading(false));
+  }, []);
 
-  const handleSubmit = async (e: any) => {
-    e.preventDefault();
-    try {
-      if (editingHospital) {
-        await platformAdminService.updateHospital(editingHospital.id, formData);
-        toast.success('Hospital updated successfully');
-      } else {
-        await platformAdminService.createHospital(formData);
-        toast.success('Hospital registered successfully');
-      }
-      setShowAddModal(false);
-      setEditingHospital(null);
-      setFormData({ name: '', address: '', city: '', state: '', zip_code: '', phone: '', email: '' });
-      refresh();
-    } catch (err) {
-      toast.error(editingHospital ? 'Update failed' : 'Registration failed');
-    }
-  };
-
-  const openEdit = (hospital: any) => {
-    setEditingHospital(hospital);
-    setFormData({
-      name: hospital.name,
-      address: hospital.address || '',
-      city: hospital.city || '',
-      state: hospital.state || '',
-      zip_code: hospital.zip_code || '',
-      phone: hospital.phone || '',
-      email: hospital.email || ''
-    });
-    setShowAddModal(true);
-  };
-
-  const handleDelete = async (hospitalId: number) => {
-    if (!window.confirm('Permanently decommission this facility? All associated data will be archived.')) return;
-    try {
-      await platformAdminService.deleteHospital(hospitalId);
-      toast.success('Facility decommissioned');
-      refresh();
-    } catch (err) {
-      toast.error('Decommissioning failed');
-    }
-  };
-
-  if (!data && viewMode === 'list') return null;
+  if (loading) return <Loader />;
 
   return (
-    <div className="space-y-8">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">Hospital Network</h3>
-             <p className="text-sm text-gray-500 font-medium">
-                {viewMode === 'list' ? `Monitoring ${data?.length || 0} active facilities` : 'Regional distribution & infrastructure load'}
-             </p>
-          </div>
-          <div className="flex gap-4">
-             <button 
-                onClick={() => setViewMode(viewMode === 'list' ? 'regional' : 'list')}
-                className={cn(
-                  "px-6 py-3 border rounded-2xl text-sm font-black transition-all flex items-center gap-2",
-                  viewMode === 'regional' ? "bg-primary-900 text-white border-primary-900" : "bg-white border-gray-100 text-gray-600 hover:bg-gray-50"
-                )}
-             >
-                {viewMode === 'list' ? (
-                  <><MapPin className="w-4 h-4" /> Regional View</>
-                ) : (
-                  <><LayoutDashboard className="w-4 h-4" /> List View</>
-                )}
-             </button>
-             <button 
-                onClick={() => setShowAddModal(true)}
-                className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2"
-             >
-                <Plus className="w-5 h-5" /> Add Hospital
-             </button>
-          </div>
-       </div>
-
-       {viewMode === 'list' ? (
-         <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse">
-                <thead>
-                   <tr className="border-b border-gray-50 bg-gray-50/50">
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Facility</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Region</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Patients/Doctors</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Perf. Score</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
-                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                   {Array.isArray(data) && data.map((hospital: any) => (
-                     <motion.tr 
-                       key={hospital.id}
-                       initial={{ opacity: 0 }}
-                       animate={{ opacity: 1 }}
-                       className="group hover:bg-gray-50/50 transition-all"
-                     >
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-primary-50 rounded-xl flex items-center justify-center text-primary-600">
-                                 <Building2 className="w-5 h-5" />
-                              </div>
-                              <div>
-                                 <h4 className="text-sm font-black text-gray-900">{hospital.name}</h4>
-                                 <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{hospital.location}</p>
-                              </div>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className={cn(
-                             "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border",
-                             hospital.status === 'ACTIVE' ? "bg-green-50 text-green-700 border-green-100" : "bg-amber-50 text-amber-700 border-amber-100"
-                           )}>
-                              {hospital.status}
-                           </span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className="text-xs font-bold text-gray-600">{hospital.region}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-2">
-                              <div className="text-xs font-black text-gray-900">{hospital.patients}</div>
-                              <div className="text-[10px] text-gray-400 font-bold">/</div>
-                              <div className="text-xs font-bold text-gray-500">{hospital.doctors}</div>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-3">
-                              <div className="flex-1 h-1.5 w-16 bg-gray-100 rounded-full overflow-hidden">
-                                 <div 
-                                   className={cn(
-                                     "h-full rounded-full transition-all duration-1000",
-                                     hospital.performance > 90 ? "bg-green-500" : hospital.performance > 80 ? "bg-blue-500" : "bg-amber-500"
-                                   )} 
-                                   style={{ width: `${hospital.performance}%` }} 
-                                 />
-                              </div>
-                              <span className="text-[10px] font-black text-gray-900">{hospital.performance}%</span>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-2">
-                              <button className="p-2 text-gray-400 hover:text-primary-600 hover:bg-primary-50 rounded-lg transition-all">
-                                 <Activity className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => openEdit(hospital)}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                              >
-                                 <Edit3 className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDelete(hospital.id)}
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              >
-                                 <MoreVertical className="w-4 h-4" />
-                              </button>
-                           </div>
-                        </td>
-                     </motion.tr>
-                   ))}
-                </tbody>
-             </table>
-          </div>
-       </div>
-       ) : (
-         <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-            {regionalStats.map((reg, i) => (
-              <motion.div 
-                key={i}
-                initial={{ opacity: 0, scale: 0.95 }}
-                animate={{ opacity: 1, scale: 1 }}
-                className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm"
-              >
-                 <div className="flex items-center justify-between mb-6">
-                    <h4 className="text-lg font-black text-gray-900">{reg.region}</h4>
-                    <Globe className="w-5 h-5 text-primary-500" />
-                 </div>
-                 <div className="space-y-6">
-                    <div className="flex justify-between items-center">
-                       <span className="text-xs font-bold text-gray-400 uppercase tracking-widest">Active Units</span>
-                       <span className="text-lg font-black text-gray-900">{reg.active} / {reg.count}</span>
-                    </div>
-                    <div className="space-y-2">
-                       <div className="flex justify-between text-[10px] font-black uppercase">
-                          <span className="text-gray-400">Territory Load</span>
-                          <span className={cn(reg.load > 60 ? "text-red-500" : "text-green-500")}>{reg.load}%</span>
-                       </div>
-                       <div className="h-1.5 bg-gray-100 rounded-full overflow-hidden">
-                          <div className={cn("h-full rounded-full transition-all duration-1000", reg.load > 60 ? "bg-red-500" : "bg-primary-500")} style={{ width: `${reg.load}%` }} />
-                       </div>
-                    </div>
-                 </div>
-              </motion.div>
-            ))}
-         </div>
-       )}
-
-       <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <h4 className="text-[10px] font-black text-gray-400 uppercase tracking-widest mb-4">Verification Queue</h4>
-             <div className="space-y-4">
-                {[1, 2].map((i) => (
-                  <div key={i} className="p-4 bg-gray-50 rounded-2xl border border-gray-100 flex items-center justify-between">
-                     <div className="flex items-center gap-3">
-                        <div className="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-amber-500 shadow-sm">
-                           <ShieldAlert className="w-4 h-4" />
-                        </div>
-                        <div>
-                           <p className="text-xs font-black text-gray-900">Mercy Hospital {i}</p>
-                           <p className="text-[9px] text-gray-400 font-bold uppercase">Pending Docs</p>
-                        </div>
-                     </div>
-                     <button className="text-[10px] font-black text-primary-600 hover:underline">REVIEW</button>
-                  </div>
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Organizations" actions={<button className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Plus className="w-4 h-4" /> Add Organization</button>} />
+      {orgs.length === 0 ? <EmptyState message="No organizations found" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Name', 'Type', 'Hospitals', 'Users', 'Status', 'Region'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
                 ))}
-             </div>
-          </div>
-
-          <div className="bg-primary-900 rounded-[40px] p-8 text-white shadow-xl col-span-2">
-             <div className="flex items-center justify-between mb-8">
-                <h4 className="text-sm font-black uppercase tracking-widest">Network Growth Analytics</h4>
-                <div className="flex gap-2">
-                   <div className="px-3 py-1 bg-white/10 rounded-full text-[10px] font-black uppercase">Q2 2026</div>
-                </div>
-             </div>
-             <div className="h-32 flex items-end gap-3 px-4">
-                {[45, 60, 45, 75, 55, 90, 85].map((v, i) => (
-                  <div key={i} className="flex-1 bg-white/20 rounded-t-lg relative group" style={{ height: `${v}%` }}>
-                     <div className="absolute top-0 left-0 right-0 h-1 bg-primary-400 rounded-full" />
-                     <div className="opacity-0 group-hover:opacity-100 absolute -top-6 left-1/2 -translate-x-1/2 text-[10px] font-black">
-                        {v}%
-                     </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-       </div>
-
-       {/* Add Hospital Modal */}
-       <AnimatePresence>
-          {showAddModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 onClick={() => setShowAddModal(false)}
-                 className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-               />
-               <motion.div 
-                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                 className="relative w-full max-w-xl bg-white rounded-[48px] p-10 shadow-2xl overflow-hidden"
-               >
-                  <div className="absolute top-0 right-0 p-8">
-                     <button onClick={() => { setShowAddModal(false); setEditingHospital(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-all">
-                        <X className="w-6 h-6 text-gray-400" />
-                     </button>
-                  </div>
-
-                  <h3 className="text-3xl font-black text-gray-900 mb-2">
-                    {editingHospital ? 'Edit Facility' : 'Register Facility'}
-                  </h3>
-                  <p className="text-gray-500 font-medium mb-8">
-                    {editingHospital ? 'Update clinical unit metadata and infrastructure details.' : 'Provision a new clinical unit to the Novelle network.'}
-                  </p>
-
-                  <form onSubmit={handleSubmit} className="space-y-6">
-                     <div className="space-y-4">
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Hospital Name</label>
-                              <input 
-                                required
-                                value={formData.name}
-                                onChange={(e) => setFormData({...formData, name: e.target.value})}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                                placeholder="St. Mary's Medical"
-                              />
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Contact Email</label>
-                              <input 
-                                required
-                                type="email"
-                                value={formData.email}
-                                onChange={(e) => setFormData({...formData, email: e.target.value})}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                                placeholder="admin@hospital.com"
-                              />
-                           </div>
-                        </div>
-                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Full Address</label>
-                           <input 
-                             required
-                             value={formData.address}
-                             onChange={(e) => setFormData({...formData, address: e.target.value})}
-                             className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                             placeholder="123 Health Ave, Suite 500"
-                           />
-                        </div>
-                        <div className="grid grid-cols-3 gap-4">
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">City</label>
-                              <input 
-                                required
-                                value={formData.city}
-                                onChange={(e) => setFormData({...formData, city: e.target.value})}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                                placeholder="New York"
-                              />
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">State</label>
-                              <input 
-                                required
-                                value={formData.state}
-                                onChange={(e) => setFormData({...formData, state: e.target.value})}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                                placeholder="NY"
-                              />
-                           </div>
-                           <div className="space-y-1.5">
-                              <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Zip Code</label>
-                              <input 
-                                required
-                                value={formData.zip_code}
-                                onChange={(e) => setFormData({...formData, zip_code: e.target.value})}
-                                className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                                placeholder="10001"
-                              />
-                           </div>
-                        </div>
-                     </div>
-
-                     <div className="pt-4 flex gap-4">
-                        <button 
-                          type="button"
-                          onClick={() => setShowAddModal(false)}
-                          className="flex-1 px-8 py-4 bg-gray-50 text-gray-600 font-black rounded-3xl hover:bg-gray-100 transition-all"
-                        >
-                           DISCARD
-                        </button>
-                        <button 
-                          type="submit"
-                          className="flex-[2] btn-primary rounded-3xl py-4 font-black shadow-xl shadow-primary-500/20"
-                        >
-                           {editingHospital ? 'SAVE CHANGES' : 'COMPLETE REGISTRATION'}
-                        </button>
-                     </div>
-                  </form>
-               </motion.div>
-            </div>
-          )}
-       </AnimatePresence>
-    </div>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {orgs.map((o: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-3 font-medium text-gray-900">{o.name}</td>
+                  <td className="px-5 py-3 text-gray-600">{o.type ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{o.hospital_count ?? o.hospitals ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{o.user_count ?? o.users ?? '-'}</td>
+                  <td className="px-5 py-3"><StatusBadge status={o.status ?? 'active'} /></td>
+                  <td className="px-5 py-3 text-gray-500">{o.region ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-// ── Users Management View ────────────────────────────
+// ── HOSPITALS VIEW ──────────────────────────────────────
 
-function UsersManagementView({ data, refresh }: { data: any, refresh: () => void }) {
-  const [showProvisionModal, setShowProvisionModal] = useState(false);
-  const [editingUser, setEditingUser] = useState<any>(null);
-  const [formData, setFormData] = useState({
-    name: '', email: '', role: 'doctor'
+function HospitalsView() {
+  const [hospitals, setHospitals] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [showAdd, setShowAdd] = useState(false);
+  const [form, setForm] = useState({ name: '', city: '', state: '', type: 'General', tier: 'Tier-1' });
+
+  const load = () => {
+    setLoading(true);
+    platformAdminService.listHospitals().then(r => {
+      const d = r.data;
+      setHospitals(Array.isArray(d) ? d : d?.hospitals ?? []);
+    }).catch(() => toast.error('Failed to load hospitals')).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    if (!form.name.trim()) { toast.error('Hospital name is required'); return; }
+    try {
+      await platformAdminService.createHospital(form);
+      toast.success('Hospital created');
+      setShowAdd(false);
+      setForm({ name: '', city: '', state: '', type: 'General', tier: 'Tier-1' });
+      load();
+    } catch { toast.error('Failed to create hospital'); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this hospital?')) return;
+    try {
+      await platformAdminService.deleteHospital(id);
+      toast.success('Hospital deleted');
+      load();
+    } catch { toast.error('Failed to delete hospital'); }
+  };
+
+  if (loading) return <Loader />;
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title={`Hospitals (${hospitals.length})`} actions={
+        <button onClick={() => setShowAdd(true)} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Plus className="w-4 h-4" /> Add Hospital</button>
+      } />
+
+      <AnimatePresence>
+        {showAdd && (
+          <motion.div {...fade} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-gray-900">New Hospital</h4>
+              <button onClick={() => setShowAdd(false)}><X className="w-4 h-4 text-gray-400" /></button>
+            </div>
+            <div className="grid sm:grid-cols-3 gap-4">
+              {[
+                { key: 'name', label: 'Name', placeholder: 'Hospital name' },
+                { key: 'city', label: 'City', placeholder: 'City' },
+                { key: 'state', label: 'State', placeholder: 'State' },
+              ].map(f => (
+                <div key={f.key}>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">{f.label}</label>
+                  <input value={(form as any)[f.key]} onChange={e => setForm(p => ({ ...p, [f.key]: e.target.value }))} placeholder={f.placeholder} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+                </div>
+              ))}
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={handleCreate} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Save className="w-4 h-4" /> Create</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {hospitals.length === 0 ? <EmptyState message="No hospitals found" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Name', 'City', 'Type', 'Tier', 'Capabilities', 'Status', ''].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {hospitals.map((h: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-3 font-medium text-gray-900">{h.name}</td>
+                  <td className="px-5 py-3 text-gray-600">{h.city ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{h.type ?? h.hospital_type ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{h.tier ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-500 text-xs max-w-[180px] truncate">{Array.isArray(h.capabilities) ? h.capabilities.join(', ') : (h.capabilities ?? '-')}</td>
+                  <td className="px-5 py-3"><StatusBadge status={h.status ?? 'active'} /></td>
+                  <td className="px-5 py-3">
+                    <button onClick={() => handleDelete(h.id)} className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── USERS & ROLES VIEW ──────────────────────────────────
+
+function UsersView() {
+  const [users, setUsers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [showProvision, setShowProvision] = useState(false);
+  const [form, setForm] = useState({ email: '', full_name: '', role: 'patient', password: '' });
+
+  const load = () => {
+    setLoading(true);
+    platformAdminService.listGlobalUsers().then(r => {
+      const d = r.data;
+      setUsers(Array.isArray(d) ? d : d?.users ?? []);
+    }).catch(() => toast.error('Failed to load users')).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleProvision = async () => {
+    if (!form.email || !form.full_name) { toast.error('Email and name are required'); return; }
+    try {
+      await platformAdminService.provisionUser(form);
+      toast.success('User provisioned');
+      setShowProvision(false);
+      setForm({ email: '', full_name: '', role: 'patient', password: '' });
+      load();
+    } catch { toast.error('Failed to provision user'); }
+  };
+
+  const handleDelete = async (id: number) => {
+    if (!confirm('Delete this user?')) return;
+    try {
+      await platformAdminService.deleteUser(id);
+      toast.success('User deleted');
+      load();
+    } catch { toast.error('Failed to delete user'); }
+  };
+
+  const filtered = users.filter(u => {
+    const q = search.toLowerCase();
+    return !q || (u.full_name ?? '').toLowerCase().includes(q) || (u.email ?? '').toLowerCase().includes(q) || (u.role ?? '').toLowerCase().includes(q);
   });
 
-  const handleProvision = async (e: any) => {
-    e.preventDefault();
-    try {
-      if (editingUser) {
-        await platformAdminService.updateUser(editingUser.id, formData);
-        toast.success('User updated successfully');
-      } else {
-        await platformAdminService.provisionUser(formData);
-        toast.success('User provisioned successfully');
-      }
-      setShowProvisionModal(false);
-      setEditingUser(null);
-      setFormData({ name: '', email: '', role: 'doctor' });
-      refresh();
-    } catch (err) {
-      toast.error(editingUser ? 'Update failed' : 'Provisioning failed');
-    }
+  const roleBadge: Record<string, string> = {
+    platform_admin: 'bg-purple-100 text-purple-700',
+    hospital_admin: 'bg-blue-100 text-blue-700',
+    doctor: 'bg-emerald-100 text-emerald-700',
+    patient: 'bg-amber-100 text-amber-700',
   };
 
-  const openEdit = (user: any) => {
-    setEditingUser(user);
-    setFormData({ name: user.name, email: user.email, role: user.role });
-    setShowProvisionModal(true);
-  };
-
-  const toggleStatus = async (userId: number, currentStatus: string) => {
-    try {
-      const newStatus = currentStatus === 'ACTIVE' ? 'SUSPENDED' : 'ACTIVE';
-      await platformAdminService.updateUserStatus(userId, newStatus);
-      toast.success(`User ${newStatus.toLowerCase()}`);
-      refresh();
-    } catch (err) {
-      toast.error('Status update failed');
-    }
-  };
-
-  const handleDelete = async (userId: number) => {
-    if (!window.confirm('Permanently delete this user? This action cannot be undone.')) return;
-    try {
-      await platformAdminService.deleteUser(userId);
-      toast.success('User removed from platform');
-      refresh();
-    } catch (err) {
-      toast.error('Deletion failed');
-    }
-  };
-
-  if (!data) return null;
+  if (loading) return <Loader />;
 
   return (
-    <div className="space-y-8">
-       <div className="flex items-center justify-between">
-          <div>
-             <h3 className="text-2xl font-black text-gray-900">Global Identity Management</h3>
-             <p className="text-sm text-gray-500 font-medium">Controlling access for {data.length} users across the ecosystem</p>
-          </div>
-          <div className="flex gap-4">
-             <div className="relative">
-                <Search className="w-4 h-4 absolute left-4 top-1/2 -translate-y-1/2 text-gray-400" />
-                <input 
-                  type="text" 
-                  placeholder="Search by name, email..." 
-                  className="pl-11 pr-6 py-3 bg-white border border-gray-100 rounded-2xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 transition-all w-64"
-                />
-             </div>
-             <button 
-                onClick={() => setShowProvisionModal(true)}
-                className="btn-primary rounded-2xl px-6 py-3 flex items-center gap-2"
-             >
-                <Plus className="w-5 h-5" /> Provision User
-             </button>
-          </div>
-       </div>
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title={`Users & Roles (${users.length})`} actions={
+        <button onClick={() => setShowProvision(true)} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><UserPlus className="w-4 h-4" /> Provision User</button>
+      } />
 
-       <div className="bg-white rounded-[40px] border border-gray-100 shadow-sm overflow-hidden">
-          <div className="overflow-x-auto">
-             <table className="w-full text-left border-collapse">
-                <thead>
-                   <tr className="border-b border-gray-50 bg-gray-50/50">
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">User Profile</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Global Role</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Affiliation</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Status</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Last Active</th>
-                      <th className="px-8 py-5 text-[10px] font-black text-gray-400 uppercase tracking-widest">Actions</th>
-                   </tr>
-                </thead>
-                <tbody className="divide-y divide-gray-50">
-                   {Array.isArray(data) && data.map((user: any) => (
-                     <motion.tr 
-                       key={user.id}
-                       initial={{ opacity: 0 }}
-                       animate={{ opacity: 1 }}
-                       className="group hover:bg-gray-50/50 transition-all"
-                     >
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-4">
-                              <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-600 font-black text-xs">
-                                 {user.name.split(' ').map((n: string) => n[0]).join('')}
-                              </div>
-                              <div>
-                                 <h4 className="text-sm font-black text-gray-900">{user.name}</h4>
-                                 <p className="text-xs text-gray-400 font-medium">{user.email}</p>
-                              </div>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-2">
-                              <span className={cn(
-                                "px-2 py-0.5 rounded-lg text-[10px] font-black uppercase tracking-widest border",
-                                user.role === 'platform_admin' ? "bg-red-50 text-red-700 border-red-100" :
-                                user.role === 'hospital_admin' ? "bg-purple-50 text-purple-700 border-purple-100" :
-                                user.role === 'doctor' ? "bg-blue-50 text-blue-700 border-blue-100" :
-                                "bg-gray-50 text-gray-700 border-gray-100"
-                              )}>
-                                 {user.role.replace('_', ' ')}
-                              </span>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className="text-xs font-bold text-gray-500">{user.hospital}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-2">
-                              <div className={cn("w-1.5 h-1.5 rounded-full", user.status === 'ACTIVE' ? "bg-green-500" : "bg-red-500")} />
-                              <span className="text-xs font-black text-gray-900">{user.status}</span>
-                           </div>
-                        </td>
-                        <td className="px-8 py-6">
-                           <span className="text-xs font-medium text-gray-400">{user.last_login}</span>
-                        </td>
-                        <td className="px-8 py-6">
-                           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all">
-                              <button 
-                                onClick={() => toggleStatus(user.id, user.status)}
-                                title={user.status === 'ACTIVE' ? 'Suspend Account' : 'Activate Account'}
-                                className={cn(
-                                  "p-2 rounded-lg transition-all",
-                                  user.status === 'ACTIVE' ? "text-amber-400 hover:text-amber-600 hover:bg-amber-50" : "text-green-400 hover:text-green-600 hover:bg-green-50"
-                                )}
-                              >
-                                 <ShieldCheck className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => openEdit(user)}
-                                className="p-2 text-gray-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-all"
-                              >
-                                 <UserCog className="w-4 h-4" />
-                              </button>
-                              <button 
-                                onClick={() => handleDelete(user.id)}
-                                className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
-                              >
-                                 <UserX className="w-4 h-4" />
-                              </button>
-                           </div>
-                        </td>
-                     </motion.tr>
-                   ))}
-                </tbody>
-             </table>
-          </div>
-       </div>
-
-       <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-          <RoleCard title="Platform Admins" count={2} color="red" icon={ShieldAlert} />
-          <RoleCard title="Hospital Admins" count={12} color="purple" icon={Building2} />
-          <RoleCard title="Doctors" count={85} color="blue" icon={Stethoscope} />
-          <RoleCard title="Patients" count={1240} color="green" icon={Heart} />
-       </div>
-
-       {/* Provision User Modal */}
-       <AnimatePresence>
-          {showProvisionModal && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-               <motion.div 
-                 initial={{ opacity: 0 }}
-                 animate={{ opacity: 1 }}
-                 exit={{ opacity: 0 }}
-                 onClick={() => setShowProvisionModal(false)}
-                 className="absolute inset-0 bg-black/20 backdrop-blur-sm"
-               />
-               <motion.div 
-                 initial={{ opacity: 0, y: 20, scale: 0.95 }}
-                 animate={{ opacity: 1, y: 0, scale: 1 }}
-                 exit={{ opacity: 0, y: 20, scale: 0.95 }}
-                 className="relative w-full max-w-lg bg-white rounded-[48px] p-10 shadow-2xl overflow-hidden"
-               >
-                  <div className="absolute top-0 right-0 p-8">
-                     <button onClick={() => { setShowProvisionModal(false); setEditingUser(null); }} className="p-2 hover:bg-gray-100 rounded-full transition-all">
-                        <X className="w-6 h-6 text-gray-400" />
-                     </button>
-                  </div>
-
-                  <h3 className="text-3xl font-black text-gray-900 mb-2">
-                    {editingUser ? 'Edit Profile' : 'Provision User'}
-                  </h3>
-                  <p className="text-gray-500 font-medium mb-8">
-                    {editingUser ? 'Update stakeholder metadata and access levels.' : 'Onboard a new stakeholder to the Novelle platform.'}
-                  </p>
-
-                  <form onSubmit={handleProvision} className="space-y-6">
-                     <div className="space-y-4">
-                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Full Name</label>
-                           <input 
-                             required
-                             value={formData.name}
-                             onChange={(e) => setFormData({...formData, name: e.target.value})}
-                             className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                             placeholder="John Doe"
-                           />
-                        </div>
-                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Email Address</label>
-                           <input 
-                             required
-                             type="email"
-                             value={formData.email}
-                             onChange={(e) => setFormData({...formData, email: e.target.value})}
-                             className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all" 
-                             placeholder="john@example.com"
-                           />
-                        </div>
-                        <div className="space-y-1.5">
-                           <label className="text-[10px] font-black text-gray-400 uppercase tracking-widest px-1">Platform Role</label>
-                           <select 
-                             value={formData.role}
-                             onChange={(e) => setFormData({...formData, role: e.target.value})}
-                             className="w-full px-5 py-3 bg-gray-50 border border-gray-100 rounded-2xl focus:ring-2 focus:ring-primary-500/20 outline-none transition-all appearance-none"
-                           >
-                              <option value="doctor">Doctor</option>
-                              <option value="hospital_admin">Hospital Admin</option>
-                              <option value="platform_admin">Platform Admin</option>
-                              <option value="pregnant_user">Patient</option>
-                           </select>
-                        </div>
-                     </div>
-
-                     <div className="pt-4 flex gap-4">
-                        <button 
-                          type="button"
-                          onClick={() => setShowProvisionModal(false)}
-                          className="flex-1 px-8 py-4 bg-gray-50 text-gray-600 font-black rounded-3xl hover:bg-gray-100 transition-all"
-                        >
-                           DISCARD
-                        </button>
-                        <button 
-                          type="submit"
-                          className="flex-[2] btn-primary rounded-3xl py-4 font-black shadow-xl shadow-primary-500/20"
-                        >
-                           {editingUser ? 'SAVE CHANGES' : 'COMPLETE ONBOARDING'}
-                        </button>
-                     </div>
-                  </form>
-               </motion.div>
+      <AnimatePresence>
+        {showProvision && (
+          <motion.div {...fade} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-gray-900">Provision New User</h4>
+              <button onClick={() => setShowProvision(false)}><X className="w-4 h-4 text-gray-400" /></button>
             </div>
-          )}
-       </AnimatePresence>
-    </div>
+            <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Full Name</label>
+                <input value={form.full_name} onChange={e => setForm(p => ({ ...p, full_name: e.target.value }))} placeholder="John Doe" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Email</label>
+                <input value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} type="email" placeholder="user@example.com" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Role</label>
+                <select value={form.role} onChange={e => setForm(p => ({ ...p, role: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none bg-white">
+                  <option value="patient">Patient</option>
+                  <option value="doctor">Doctor</option>
+                  <option value="hospital_admin">Hospital Admin</option>
+                  <option value="platform_admin">Platform Admin</option>
+                </select>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Password</label>
+                <input value={form.password} onChange={e => setForm(p => ({ ...p, password: e.target.value }))} type="password" placeholder="••••••••" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+              </div>
+            </div>
+            <div className="flex justify-end mt-4">
+              <button onClick={handleProvision} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Save className="w-4 h-4" /> Provision</button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="relative">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search users by name, email, or role…" className="w-full pl-10 pr-4 py-2.5 border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none bg-white" />
+      </div>
+
+      {filtered.length === 0 ? <EmptyState message="No users found" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Name', 'Email', 'Role', 'Status', 'Joined', ''].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {filtered.map((u: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-3 font-medium text-gray-900">{u.full_name ?? u.name}</td>
+                  <td className="px-5 py-3 text-gray-600">{u.email}</td>
+                  <td className="px-5 py-3">
+                    <span className={`px-2.5 py-0.5 text-[11px] rounded-full font-semibold capitalize ${roleBadge[u.role] ?? 'bg-gray-100 text-gray-600'}`}>{u.role?.replace(/_/g, ' ')}</span>
+                  </td>
+                  <td className="px-5 py-3"><StatusBadge status={u.status ?? (u.is_active !== false ? 'active' : 'inactive')} /></td>
+                  <td className="px-5 py-3 text-gray-500 text-xs">{u.created_at ? new Date(u.created_at).toLocaleDateString() : '-'}</td>
+                  <td className="px-5 py-3">
+                    <button onClick={() => handleDelete(u.id)} className="p-1.5 text-gray-400 hover:text-red-500 transition rounded-lg hover:bg-red-50"><Trash2 className="w-4 h-4" /></button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-function RoleCard({ title, count, color, icon: Icon }: any) {
-  const colors: any = {
-    red: "bg-red-50 text-red-600 border-red-100",
-    purple: "bg-purple-50 text-purple-600 border-purple-100",
-    blue: "bg-blue-50 text-blue-600 border-blue-100",
-    green: "bg-green-50 text-green-600 border-green-100"
+// ── AI CONTROL CENTER VIEW ──────────────────────────────
+
+function AIControlView() {
+  const [data, setData] = useState<any>(null);
+  const [metrics, setMetrics] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [retraining, setRetraining] = useState<string | null>(null);
+
+  useEffect(() => {
+    Promise.all([
+      platformAdminService.getAIControl().catch(() => ({ data: null })),
+      platformAdminService.getAiMetrics().catch(() => ({ data: null })),
+    ]).then(([ctrl, met]) => {
+      setData(ctrl.data);
+      setMetrics(met.data);
+    }).finally(() => setLoading(false));
+  }, []);
+
+  const handleRetrain = async (modelName: string) => {
+    setRetraining(modelName);
+    try {
+      await platformAdminService.retrainModel(modelName);
+      toast.success(`Retraining ${modelName} started`);
+    } catch { toast.error('Retrain failed'); }
+    finally { setRetraining(null); }
   };
 
+  if (loading) return <Loader />;
+
+  const models = data?.models ?? [];
+  const modelMetrics = metrics?.models ?? metrics?.model_metrics ?? [];
+
   return (
-    <div className={cn("p-6 rounded-[32px] border flex items-center justify-between", colors[color])}>
-       <div>
-          <p className="text-2xl font-black">{count}</p>
-          <p className="text-[10px] font-black uppercase tracking-widest opacity-70">{title}</p>
-       </div>
-       <Icon className="w-8 h-8 opacity-20" />
-    </div>
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="AI Control Center" />
+
+      {data?.status && (
+        <div className="flex items-center gap-3 bg-white rounded-xl border border-gray-200 p-4 shadow-sm">
+          <Cpu className="w-5 h-5 text-indigo-500" />
+          <span className="text-sm text-gray-700">AI System Status:</span>
+          <StatusBadge status={data.status} size="md" />
+        </div>
+      )}
+
+      <div className="grid md:grid-cols-2 lg:grid-cols-3 gap-5">
+        {models.map((m: any, i: number) => (
+          <motion.div key={i} {...fade} transition={{ delay: i * 0.05 }} className="bg-white rounded-xl border border-gray-200 p-5 shadow-sm">
+            <div className="flex items-center justify-between mb-3">
+              <div className="flex items-center gap-2">
+                <Brain className="w-5 h-5 text-purple-500" />
+                <h4 className="font-semibold text-gray-900 text-sm">{m.name ?? m.model_name}</h4>
+              </div>
+              <StatusBadge status={m.status ?? 'active'} />
+            </div>
+            <div className="space-y-2 text-xs text-gray-500 mb-4">
+              {m.version && <p>Version: <span className="text-gray-700 font-medium">{m.version}</span></p>}
+              {m.accuracy != null && <p>Accuracy: <span className="text-gray-700 font-medium">{typeof m.accuracy === 'number' ? `${(m.accuracy * 100).toFixed(1)}%` : m.accuracy}</span></p>}
+              {m.last_trained && <p>Last trained: <span className="text-gray-700 font-medium">{m.last_trained}</span></p>}
+              {m.predictions_today != null && <p>Predictions today: <span className="text-gray-700 font-medium">{m.predictions_today}</span></p>}
+            </div>
+            <button
+              onClick={() => handleRetrain(m.name ?? m.model_name)}
+              disabled={retraining === (m.name ?? m.model_name)}
+              className="w-full flex items-center justify-center gap-1.5 py-2 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition disabled:opacity-50"
+            >
+              {retraining === (m.name ?? m.model_name) ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <PlayCircle className="w-3.5 h-3.5" />}
+              {retraining === (m.name ?? m.model_name) ? 'Retraining…' : 'Retrain Model'}
+            </button>
+          </motion.div>
+        ))}
+      </div>
+
+      {modelMetrics.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Model Metrics" />
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {['Model', 'Accuracy', 'Precision', 'Recall', 'F1 Score', 'Latency'].map(h => (
+                    <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {modelMetrics.map((m: any, i: number) => (
+                  <tr key={i} className="hover:bg-gray-50">
+                    <td className="px-5 py-3 font-medium text-gray-900">{m.name ?? m.model_name}</td>
+                    <td className="px-5 py-3 text-gray-700">{m.accuracy != null ? `${(Number(m.accuracy) * 100).toFixed(1)}%` : '-'}</td>
+                    <td className="px-5 py-3 text-gray-700">{m.precision != null ? `${(Number(m.precision) * 100).toFixed(1)}%` : '-'}</td>
+                    <td className="px-5 py-3 text-gray-700">{m.recall != null ? `${(Number(m.recall) * 100).toFixed(1)}%` : '-'}</td>
+                    <td className="px-5 py-3 text-gray-700">{m.f1_score != null ? `${(Number(m.f1_score) * 100).toFixed(1)}%` : '-'}</td>
+                    <td className="px-5 py-3 text-gray-700">{m.latency_ms != null ? `${m.latency_ms}ms` : '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-// ── AI Control Center ────────────────────────────────
+// ── ANALYTICS VIEW ──────────────────────────────────────
 
-function AIControlCenter({ data }: { data: any }) {
-  if (!data) return null;
+function AnalyticsView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getGlobalAnalytics().then(r => setData(r.data)).catch(() => toast.error('Failed to load analytics')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No analytics data" />;
+
+  const kpis = data.kpis ?? data.key_metrics ?? data.metrics ?? {};
 
   return (
-    <div className="space-y-8">
-       <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-          <div className="lg:col-span-2 space-y-8">
-             <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-                <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center gap-2">
-                   <Terminal className="w-6 h-6 text-primary-600" />
-                   Active Model Inventory
-                </h3>
-                <div className="space-y-4">
-                   {data.models.map((model: any, i: number) => (
-                     <div key={i} className="p-6 bg-gray-50 rounded-[32px] border border-gray-100 flex items-center gap-6 hover:border-primary-200 transition-all group">
-                        <div className="w-12 h-12 bg-white rounded-2xl flex items-center justify-center text-primary-600 shadow-sm">
-                           <Sparkles className="w-6 h-6" />
-                        </div>
-                        <div className="flex-1">
-                           <h4 className="text-sm font-black text-gray-900 mb-1">{model.name}</h4>
-                           <div className="flex items-center gap-3">
-                              <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest">{model.status}</span>
-                              <span className="w-1 h-1 rounded-full bg-gray-300" />
-                              <span className="text-[10px] font-black text-primary-600 uppercase tracking-widest">v{i + 1}.4.2</span>
-                           </div>
-                        </div>
-                        <div className="text-right">
-                           <p className="text-lg font-black text-gray-900">{model.accuracy}%</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Accuracy</p>
-                        </div>
-                        <div className="w-px h-10 bg-gray-200" />
-                        <div className="text-right">
-                           <p className="text-lg font-black text-gray-900">{model.latency}ms</p>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">Latency</p>
-                        </div>
-                        <button className="p-2 text-gray-400 hover:text-primary-600 transition-all">
-                           <Settings className="w-5 h-5" />
-                        </button>
-                     </div>
-                   ))}
-                </div>
-             </div>
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Platform Analytics" />
 
-             <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-                <h3 className="text-xl font-black text-gray-900 mb-6">Inference Accuracy Trend</h3>
-                <div className="h-64 w-full bg-gray-50 rounded-[32px] flex items-end p-8 gap-4">
-                   {Array.isArray(data.accuracy_trend) && data.accuracy_trend.map((v: number, i: number) => (
-                     <div key={i} className="flex-1 bg-primary-600 rounded-t-xl transition-all hover:scale-105" style={{ height: `${v}%` }}>
-                        <div className="h-full w-full bg-gradient-to-t from-black/20 to-transparent" />
-                     </div>
-                   ))}
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <StatCard icon={Users} label="Total Users" value={kpis.total_users ?? data.total_users ?? '-'} color="indigo" />
+        <StatCard icon={TrendingUp} label="Growth Rate" value={kpis.growth_rate ?? data.growth_rate ?? '-'} color="emerald" />
+        <StatCard icon={Activity} label="Daily Active" value={kpis.daily_active_users ?? data.daily_active ?? '-'} color="blue" />
+        <StatCard icon={Target} label="Retention" value={kpis.retention_rate ?? data.retention ?? '-'} color="purple" />
+      </div>
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {data.usage_by_role && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Usage by Role" />
+            <div className="space-y-3">
+              {Object.entries(data.usage_by_role).map(([role, count]: [string, any]) => (
+                <div key={role} className="flex items-center justify-between py-2">
+                  <span className="text-sm text-gray-600 capitalize">{role.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-semibold text-gray-900">{count}</span>
                 </div>
-             </div>
+              ))}
+            </div>
           </div>
+        )}
 
-          <div className="space-y-6">
-             <div className="bg-gray-900 rounded-[40px] p-8 text-white shadow-xl">
-                <h3 className="text-lg font-black mb-6">Engine Stats</h3>
-                <div className="space-y-6">
-                   <div>
-                      <p className="text-[10px] text-gray-500 font-black uppercase tracking-widest mb-1">Total Predictions</p>
-                      <p className="text-3xl font-black">{data.predictions_total.toLocaleString()}</p>
-                   </div>
-                   <div className="pt-6 border-t border-gray-800">
-                      <h4 className="text-xs font-black uppercase tracking-widest mb-4">Training Pipeline</h4>
-                      <div className="space-y-3">
-                         <div className="flex items-center justify-between text-xs font-bold">
-                            <span className="text-gray-400">Model Retraining</span>
-                            <span className="text-amber-400">82%</span>
-                         </div>
-                         <div className="h-1.5 bg-gray-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-amber-400" style={{ width: '82%' }} />
-                         </div>
+        {data.feature_usage && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Feature Usage" />
+            <div className="space-y-3">
+              {Object.entries(data.feature_usage).map(([feat, val]: [string, any]) => (
+                <div key={feat} className="flex items-center justify-between py-2">
+                  <span className="text-sm text-gray-600 capitalize">{feat.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-semibold text-gray-900">{typeof val === 'number' ? val.toLocaleString() : val}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {data.charts && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Summary Statistics" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Object.entries(data.charts).map(([key, val]: [string, any]) => (
+              <div key={key} className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 capitalize mb-1">{key.replace(/_/g, ' ')}</p>
+                <p className="text-lg font-bold text-gray-800">{typeof val === 'number' ? val.toLocaleString() : JSON.stringify(val)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── ESCALATION MONITOR VIEW ─────────────────────────────
+
+function EscalationsView() {
+  const [escalations, setEscalations] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getGlobalEscalations().then(r => {
+      const d = r.data;
+      setEscalations(Array.isArray(d) ? d : d?.escalations ?? []);
+    }).catch(() => toast.error('Failed to load escalations')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+
+  const severityIcon: Record<string, string> = { critical: 'text-red-500', high: 'text-orange-500', medium: 'text-amber-500', low: 'text-green-500' };
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Escalation Monitor" />
+
+      <div className="grid sm:grid-cols-4 gap-4">
+        {['critical', 'high', 'medium', 'low'].map(sev => {
+          const count = escalations.filter(e => (e.severity ?? e.risk_level ?? '').toLowerCase() === sev).length;
+          return (
+            <div key={sev} className="bg-white rounded-xl border border-gray-200 p-4 shadow-sm flex items-center gap-3">
+              <Siren className={`w-5 h-5 ${severityIcon[sev]}`} />
+              <div>
+                <p className="text-xs text-gray-500 capitalize">{sev}</p>
+                <p className="text-xl font-bold text-gray-900">{count}</p>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+
+      {escalations.length === 0 ? <EmptyState message="No escalations" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Severity', 'Type', 'Patient', 'Hospital', 'Status', 'Created', 'Reason'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {escalations.map((e: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-3"><StatusBadge status={e.severity ?? e.risk_level ?? 'medium'} /></td>
+                  <td className="px-5 py-3 text-gray-700">{e.risk_type ?? e.type ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-700">{e.patient_name ?? e.patient_id ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-500">{e.hospital_name ?? e.hospital ?? '-'}</td>
+                  <td className="px-5 py-3"><StatusBadge status={e.status ?? 'open'} /></td>
+                  <td className="px-5 py-3 text-gray-500 text-xs">{e.created_at ? new Date(e.created_at).toLocaleString() : '-'}</td>
+                  <td className="px-5 py-3 text-gray-500 text-xs max-w-[200px] truncate">{e.escalation_reason ?? e.reason ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── BILLING VIEW ────────────────────────────────────────
+
+function BillingView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getBillingData().then(r => setData(r.data)).catch(() => toast.error('Failed to load billing')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No billing data" />;
+
+  const plans = data.plans ?? [];
+  const subscriptions = data.subscriptions ?? [];
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Billing & Subscriptions" />
+
+      <div className="grid sm:grid-cols-3 gap-4">
+        <StatCard icon={DollarSign} label="Monthly Recurring Revenue" value={`$${(data.mrr ?? 0).toLocaleString()}`} color="emerald" />
+        <StatCard icon={CreditCard} label="Active Subscriptions" value={data.active_subscriptions ?? subscriptions.length} color="indigo" />
+        <StatCard icon={TrendingUp} label="Revenue Growth" value={data.growth ?? data.revenue_growth ?? '-'} color="blue" />
+      </div>
+
+      {plans.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Plans" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {plans.map((p: any, i: number) => (
+              <div key={i} className="border border-gray-200 rounded-lg p-4">
+                <h4 className="font-semibold text-gray-900">{p.name}</h4>
+                <p className="text-2xl font-bold text-indigo-600 mt-1">${p.price ?? p.amount}<span className="text-sm text-gray-400 font-normal">/{p.interval ?? 'mo'}</span></p>
+                <p className="text-xs text-gray-500 mt-2">{p.subscribers ?? p.count ?? 0} subscribers</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {subscriptions.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="px-6 py-4 border-b border-gray-100"><h4 className="font-semibold text-gray-900">Subscriptions</h4></div>
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Organization', 'Plan', 'Status', 'Amount', 'Next Billing'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {subscriptions.map((s: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50">
+                  <td className="px-5 py-3 font-medium text-gray-900">{s.organization ?? s.org_name ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-600">{s.plan ?? s.plan_name ?? '-'}</td>
+                  <td className="px-5 py-3"><StatusBadge status={s.status ?? 'active'} /></td>
+                  <td className="px-5 py-3 text-gray-700">${s.amount ?? s.price ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-500 text-xs">{s.next_billing ?? s.renewal_date ?? '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── INFRASTRUCTURE VIEW ─────────────────────────────────
+
+function InfrastructureView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getInfrastructure().then(r => setData(r.data)).catch(() => toast.error('Failed to load infrastructure')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No infrastructure data" />;
+
+  const servers = data.servers ?? [];
+  const databases = data.databases ?? [];
+  const services = data.services ?? [];
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Infrastructure" />
+
+      {data.latency_ms != null && (
+        <div className="grid sm:grid-cols-3 gap-4">
+          <StatCard icon={Gauge} label="Avg Latency" value={`${data.latency_ms}ms`} color="blue" />
+          <StatCard icon={Server} label="Total Servers" value={servers.length} color="indigo" />
+          <StatCard icon={Database} label="Databases" value={databases.length} color="purple" />
+        </div>
+      )}
+
+      {servers.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Servers" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {servers.map((s: any, i: number) => (
+              <div key={i} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <h4 className="font-semibold text-gray-900 text-sm">{s.name ?? s.id}</h4>
+                  <StatusBadge status={s.status ?? 'running'} />
+                </div>
+                <div className="space-y-1.5 text-xs text-gray-500">
+                  {s.region && <p>Region: <span className="text-gray-700">{s.region}</span></p>}
+                  {s.load != null && (
+                    <div>
+                      <p className="mb-1">Load: <span className="text-gray-700">{typeof s.load === 'number' ? `${s.load}%` : s.load}</span></p>
+                      <div className="w-full bg-gray-100 rounded-full h-1.5">
+                        <div className={`h-1.5 rounded-full ${Number(s.load) > 80 ? 'bg-red-500' : Number(s.load) > 50 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(Number(s.load) || 0, 100)}%` }} />
                       </div>
-                   </div>
+                    </div>
+                  )}
+                  {s.uptime && <p>Uptime: <span className="text-gray-700">{s.uptime}</span></p>}
+                  {s.cpu && <p>CPU: <span className="text-gray-700">{s.cpu}</span></p>}
+                  {s.memory && <p>Memory: <span className="text-gray-700">{s.memory}</span></p>}
                 </div>
-             </div>
-
-             <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-                <h3 className="text-xs font-black text-gray-400 uppercase tracking-widest mb-6">AI Governance Log</h3>
-                <div className="space-y-4">
-                   {Array.isArray(data.alerts) && data.alerts.map((alert: any) => (
-                     <div key={alert.id} className="p-4 bg-amber-50 border border-amber-100 rounded-2xl">
-                        <div className="flex items-center gap-2 mb-1">
-                           <Info className="w-3 h-3 text-amber-600" />
-                           <span className="text-[10px] font-black text-amber-700 uppercase tracking-widest">{alert.level}</span>
-                        </div>
-                        <p className="text-[11px] text-amber-800 font-medium leading-relaxed">{alert.msg}</p>
-                     </div>
-                   ))}
-                </div>
-             </div>
+              </div>
+            ))}
           </div>
-       </div>
-    </div>
+        </div>
+      )}
+
+      {databases.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Database Health" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {databases.map((db: any, i: number) => (
+              <div key={i} className="border border-gray-200 rounded-lg p-4">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-2">
+                    <Database className="w-4 h-4 text-purple-500" />
+                    <h4 className="font-semibold text-gray-900 text-sm">{db.name ?? db.type}</h4>
+                  </div>
+                  <StatusBadge status={db.status ?? 'healthy'} />
+                </div>
+                <div className="space-y-1 text-xs text-gray-500">
+                  {db.size && <p>Size: <span className="text-gray-700">{db.size}</span></p>}
+                  {db.connections != null && <p>Connections: <span className="text-gray-700">{db.connections}</span></p>}
+                  {db.replication && <p>Replication: <span className="text-gray-700">{db.replication}</span></p>}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {services.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Services" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {services.map((svc: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 p-3 border border-gray-200 rounded-lg">
+                {(svc.status ?? '').toLowerCase() === 'running' || (svc.status ?? '').toLowerCase() === 'healthy' ?
+                  <Wifi className="w-4 h-4 text-emerald-500 shrink-0" /> :
+                  <WifiOff className="w-4 h-4 text-red-500 shrink-0" />
+                }
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900 truncate">{svc.name}</p>
+                  <p className="text-xs text-gray-500">{svc.status ?? '-'}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-// ── Infrastructure View ──────────────────────────────
+// ── SECURITY & COMPLIANCE VIEW ──────────────────────────
 
-function InfrastructureView({ data }: { data: any }) {
-  if (!data) return null;
+function SecurityView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getSecurity().then(r => setData(r.data)).catch(() => toast.error('Failed to load security data')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No security data" />;
+
+  const compliance = data.compliance ?? {};
+  const auth = data.authentication ?? {};
+  const encryption = data.encryption ?? {};
+  const vulns = data.vulnerabilities ?? [];
+  const accessControl = data.access_control ?? {};
 
   return (
-    <div className="space-y-8">
-       <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center gap-2">
-                <Server className="w-6 h-6 text-blue-600" />
-                Edge Compute Clusters
-             </h3>
-             <div className="space-y-4">
-                {Array.isArray(data.servers) && data.servers.map((server: any) => (
-                  <div key={server.id} className="p-6 bg-gray-50 rounded-[32px] border border-gray-100 flex items-center justify-between">
-                     <div>
-                        <h4 className="text-sm font-black text-gray-900">{server.region} Cluster</h4>
-                        <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{server.id}</p>
-                     </div>
-                     <div className="text-right">
-                        <p className="text-sm font-black text-green-600 mb-1 flex items-center gap-1.5 justify-end">
-                           <span className="w-1.5 h-1.5 rounded-full bg-green-500" /> {server.status}
-                        </p>
-                        <div className="flex items-center gap-3">
-                           <div className="w-24 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                              <div className="h-full bg-blue-500" style={{ width: `${server.load}%` }} />
-                           </div>
-                           <span className="text-[10px] font-black text-gray-500">{server.load}% Load</span>
-                        </div>
-                     </div>
-                  </div>
-                ))}
-             </div>
-          </div>
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Security & Compliance" />
 
-          <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm">
-             <h3 className="text-xl font-black text-gray-900 mb-8 flex items-center gap-2">
-                <Database className="w-6 h-6 text-purple-600" />
-                Persistent Storage Hub
-             </h3>
-             <div className="space-y-4">
-                {Array.isArray(data.databases) && data.databases.map((db: any, i: number) => (
-                  <div key={i} className="p-6 bg-gray-50 rounded-[32px] border border-gray-100 flex items-center justify-between">
-                     <div className="flex items-center gap-4">
-                        <div className="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-purple-600 shadow-sm">
-                           <Database className="w-5 h-5" />
-                        </div>
-                        <div>
-                           <h4 className="text-sm font-black text-gray-900">{db.name}</h4>
-                           <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest">{db.engine}</p>
-                        </div>
-                     </div>
-                     <div className="text-right">
-                        <p className="text-sm font-black text-gray-900">{db.size}</p>
-                        <p className="text-[10px] text-green-600 font-black uppercase tracking-widest">{db.status}</p>
-                     </div>
-                  </div>
-                ))}
-             </div>
-          </div>
-       </div>
-
-       <div className="bg-primary-900 rounded-[40px] p-8 shadow-xl">
-          <div className="flex items-center justify-between mb-8">
-             <h3 className="text-xl font-black text-white">Global Latency Distribution</h3>
-             <div className="flex gap-4">
-                <div className="flex items-center gap-2">
-                   <div className="w-2 h-2 rounded-full bg-blue-400" />
-                   <span className="text-[10px] font-black text-primary-200 uppercase tracking-widest">Avg Response: 48ms</span>
+      {Object.keys(compliance).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Compliance Status" />
+          <div className="flex flex-wrap gap-3">
+            {Object.entries(compliance).map(([standard, status]: [string, any]) => {
+              const isCompliant = status === true || status === 'compliant' || status === 'passed';
+              return (
+                <div key={standard} className={`flex items-center gap-2 px-4 py-2.5 rounded-lg border ${isCompliant ? 'bg-emerald-50 border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                  {isCompliant ? <ShieldCheck className="w-5 h-5 text-emerald-600" /> : <ShieldAlert className="w-5 h-5 text-red-600" />}
+                  <span className={`text-sm font-semibold ${isCompliant ? 'text-emerald-700' : 'text-red-700'}`}>{standard.toUpperCase()}</span>
                 </div>
-             </div>
+              );
+            })}
           </div>
-          <div className="h-48 flex items-end gap-3">
-             {Array.isArray(data.latency) && data.latency.map((l: number, i: number) => (
-               <div key={i} className="flex-1 bg-blue-500/30 rounded-t-xl relative group" style={{ height: `${l}%` }}>
-                  <div className="absolute top-0 left-0 right-0 h-1 bg-blue-400 rounded-full" />
-                  <div className="opacity-0 group-hover:opacity-100 absolute -top-8 left-1/2 -translate-x-1/2 text-[10px] font-black text-white">
-                    {l}ms
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {Object.keys(auth).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Authentication" />
+            <div className="space-y-3">
+              {Object.entries(auth).map(([key, val]: [string, any]) => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-medium text-gray-800">{typeof val === 'boolean' ? (val ? 'Enabled' : 'Disabled') : String(val)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(encryption).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Encryption" />
+            <div className="space-y-3">
+              {Object.entries(encryption).map(([key, val]: [string, any]) => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-medium text-gray-800 flex items-center gap-1.5">
+                    <Lock className="w-3.5 h-3.5 text-indigo-400" />{String(val)}
+                  </span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {Array.isArray(vulns) && vulns.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Vulnerability Scan Results" />
+          <div className="space-y-3">
+            {vulns.map((v: any, i: number) => (
+              <div key={i} className="flex items-start gap-3 p-3 border border-gray-100 rounded-lg">
+                <AlertCircle className={`w-5 h-5 shrink-0 mt-0.5 ${(v.severity ?? '').toLowerCase() === 'critical' ? 'text-red-500' : (v.severity ?? '').toLowerCase() === 'high' ? 'text-orange-500' : 'text-amber-500'}`} />
+                <div className="min-w-0">
+                  <div className="flex items-center gap-2">
+                    <p className="text-sm font-medium text-gray-900">{v.title ?? v.name ?? v.description}</p>
+                    <StatusBadge status={v.severity ?? 'medium'} />
                   </div>
-               </div>
-             ))}
+                  {v.description && v.title && <p className="text-xs text-gray-500 mt-1">{v.description}</p>}
+                  <p className="text-xs text-gray-400 mt-1">{v.status ?? 'Open'} · {v.detected ?? v.found_at ?? ''}</p>
+                </div>
+              </div>
+            ))}
           </div>
-       </div>
-    </div>
+        </div>
+      )}
+
+      {Object.keys(accessControl).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Access Control" />
+          <div className="grid sm:grid-cols-2 gap-4">
+            {Object.entries(accessControl).map(([key, val]: [string, any]) => (
+              <div key={key} className="flex justify-between py-2 border-b border-gray-50">
+                <span className="text-sm text-gray-600 capitalize">{key.replace(/_/g, ' ')}</span>
+                <span className="text-sm font-medium text-gray-800">{typeof val === 'boolean' ? (val ? 'Enabled' : 'Disabled') : String(val)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
   );
 }
 
-// ── Components ───────────────────────────────────────
+// ── COMMUNICATION CENTER VIEW ───────────────────────────
 
-function KPIWidget({ label, value, subtext, icon: Icon, color }: any) {
-  const colors: any = {
-    blue: 'bg-blue-50 text-blue-600 border-blue-100',
-    purple: 'bg-purple-50 text-purple-600 border-purple-100',
-    pink: 'bg-pink-50 text-pink-600 border-pink-100',
-    red: 'bg-red-50 text-red-600 border-red-100'
+function CommunicationView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showAnnounce, setShowAnnounce] = useState(false);
+  const [form, setForm] = useState({ title: '', content: '', target: 'all' });
+
+  useEffect(() => {
+    platformAdminService.getCommunication().then(r => setData(r.data)).catch(() => toast.error('Failed to load communication data')).finally(() => setLoading(false));
+  }, []);
+
+  const handleAnnounce = async () => {
+    if (!form.title.trim() || !form.content.trim()) { toast.error('Title and content are required'); return; }
+    try {
+      await platformAdminService.createAnnouncement(form);
+      toast.success('Announcement created');
+      setShowAnnounce(false);
+      setForm({ title: '', content: '', target: 'all' });
+      platformAdminService.getCommunication().then(r => setData(r.data));
+    } catch { toast.error('Failed to create announcement'); }
+  };
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No communication data" />;
+
+  const channels = data.channels ?? [];
+  const announcements = data.announcements ?? [];
+  const templates = data.templates ?? [];
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Communication Center" actions={
+        <button onClick={() => setShowAnnounce(true)} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Megaphone className="w-4 h-4" /> New Announcement</button>
+      } />
+
+      <AnimatePresence>
+        {showAnnounce && (
+          <motion.div {...fade} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-gray-900">Create Announcement</h4>
+              <button onClick={() => setShowAnnounce(false)}><X className="w-4 h-4 text-gray-400" /></button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Title</label>
+                <input value={form.title} onChange={e => setForm(p => ({ ...p, title: e.target.value }))} placeholder="Announcement title" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Content</label>
+                <textarea value={form.content} onChange={e => setForm(p => ({ ...p, content: e.target.value }))} rows={3} placeholder="Write your announcement…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none resize-none" />
+              </div>
+              <div className="flex justify-end">
+                <button onClick={handleAnnounce} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Send className="w-4 h-4" /> Publish</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {channels.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Channels" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {channels.map((ch: any, i: number) => (
+              <div key={i} className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg">
+                <MessagesSquare className="w-5 h-5 text-indigo-500 shrink-0" />
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">{ch.name}</p>
+                  <StatusBadge status={ch.status ?? 'active'} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {announcements.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Announcements" />
+          <div className="space-y-3">
+            {announcements.map((a: any, i: number) => (
+              <div key={i} className="p-4 border border-gray-100 rounded-lg">
+                <div className="flex items-center justify-between mb-1">
+                  <h4 className="text-sm font-semibold text-gray-900">{a.title}</h4>
+                  <span className="text-xs text-gray-400">{a.created_at ?? a.date ?? ''}</span>
+                </div>
+                <p className="text-sm text-gray-600">{a.content ?? a.message}</p>
+                {a.target && <p className="text-xs text-gray-400 mt-1">Target: {a.target}</p>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {templates.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Message Templates" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {templates.map((t: any, i: number) => (
+              <div key={i} className="p-4 border border-gray-200 rounded-lg">
+                <p className="text-sm font-medium text-gray-900 mb-1">{t.name ?? t.title}</p>
+                <p className="text-xs text-gray-500 line-clamp-2">{t.content ?? t.body ?? t.template}</p>
+                {t.type && <span className="text-xs text-gray-400 mt-2 block">{t.type}</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── AUDIT LOGS VIEW ─────────────────────────────────────
+
+function AuditLogsView() {
+  const [logs, setLogs] = useState<any[]>([]);
+  const [total, setTotal] = useState(0);
+  const [loading, setLoading] = useState(true);
+  const [limit, setLimit] = useState(50);
+
+  const load = (l: number) => {
+    setLoading(true);
+    platformAdminService.getAuditLogs(l).then(r => {
+      const d = r.data;
+      setLogs(Array.isArray(d) ? d : d?.logs ?? []);
+      setTotal(d?.total ?? (Array.isArray(d) ? d.length : 0));
+    }).catch(() => toast.error('Failed to load audit logs')).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(limit); }, [limit]);
+
+  if (loading) return <Loader />;
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title={`Audit Logs (${total})`} actions={
+        <select value={limit} onChange={e => setLimit(Number(e.target.value))} className="px-3 py-1.5 border border-gray-200 rounded-lg text-sm bg-white">
+          <option value={25}>Last 25</option>
+          <option value={50}>Last 50</option>
+          <option value={100}>Last 100</option>
+          <option value={200}>Last 200</option>
+        </select>
+      } />
+
+      {logs.length === 0 ? <EmptyState message="No audit logs" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead className="bg-gray-50 border-b border-gray-200">
+                <tr>
+                  {['Timestamp', 'Action', 'User', 'Resource', 'IP Address', 'Details'].map(h => (
+                    <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide whitespace-nowrap">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-100">
+                {logs.map((l: any, i: number) => (
+                  <tr key={i} className="hover:bg-gray-50 transition">
+                    <td className="px-5 py-3 text-gray-500 text-xs whitespace-nowrap">{l.timestamp ? new Date(l.timestamp).toLocaleString() : '-'}</td>
+                    <td className="px-5 py-3 font-medium text-gray-900">{l.action ?? l.event}</td>
+                    <td className="px-5 py-3 text-gray-600">{l.user ?? l.user_email ?? l.actor ?? '-'}</td>
+                    <td className="px-5 py-3 text-gray-600">{l.resource ?? l.resource_type ?? '-'}</td>
+                    <td className="px-5 py-3 text-gray-500 font-mono text-xs">{l.ip_address ?? l.ip ?? '-'}</td>
+                    <td className="px-5 py-3 text-gray-500 text-xs max-w-[200px] truncate">{l.details ?? l.description ?? '-'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── INTEGRATIONS VIEW ───────────────────────────────────
+
+function IntegrationsView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getIntegrations().then(r => setData(r.data)).catch(() => toast.error('Failed to load integrations')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No integrations data" />;
+
+  const active = data.active ?? [];
+  const available = data.available ?? [];
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Integrations" />
+
+      {active.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Active Integrations" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {active.map((int: any, i: number) => (
+              <div key={i} className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg">
+                <div className="p-2.5 bg-emerald-50 rounded-lg"><Plug className="w-5 h-5 text-emerald-600" /></div>
+                <div className="min-w-0">
+                  <p className="text-sm font-medium text-gray-900">{int.name}</p>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <StatusBadge status={int.status ?? 'connected'} />
+                    {int.last_sync && <span className="text-xs text-gray-400">Synced: {int.last_sync}</span>}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {available.length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Available Integrations" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {available.map((int: any, i: number) => (
+              <div key={i} className="flex items-center gap-4 p-4 border border-gray-200 rounded-lg border-dashed">
+                <div className="p-2.5 bg-gray-50 rounded-lg"><Plug className="w-5 h-5 text-gray-400" /></div>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-medium text-gray-900">{int.name}</p>
+                  <p className="text-xs text-gray-500 mt-0.5">{int.description ?? 'Available to configure'}</p>
+                </div>
+                <button className="px-3 py-1.5 text-xs font-medium text-indigo-600 border border-indigo-200 rounded-lg hover:bg-indigo-50 transition whitespace-nowrap">Configure</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── SUPPORT & TICKETS VIEW ──────────────────────────────
+
+function SupportView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [form, setForm] = useState({ subject: '', description: '', priority: 'medium' });
+
+  const load = () => {
+    setLoading(true);
+    platformAdminService.getSupportTickets().then(r => setData(r.data)).catch(() => toast.error('Failed to load support data')).finally(() => setLoading(false));
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const handleCreate = async () => {
+    if (!form.subject.trim()) { toast.error('Subject is required'); return; }
+    try {
+      await platformAdminService.createSupportTicket(form);
+      toast.success('Ticket created');
+      setShowCreate(false);
+      setForm({ subject: '', description: '', priority: 'medium' });
+      load();
+    } catch { toast.error('Failed to create ticket'); }
+  };
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No support data" />;
+
+  const tickets = data.tickets ?? [];
+  const stats = data.stats ?? {};
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Support & Tickets" actions={
+        <button onClick={() => setShowCreate(true)} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Plus className="w-4 h-4" /> New Ticket</button>
+      } />
+
+      <AnimatePresence>
+        {showCreate && (
+          <motion.div {...fade} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center justify-between mb-4">
+              <h4 className="font-semibold text-gray-900">Create Support Ticket</h4>
+              <button onClick={() => setShowCreate(false)}><X className="w-4 h-4 text-gray-400" /></button>
+            </div>
+            <div className="space-y-4">
+              <div className="grid sm:grid-cols-2 gap-4">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Subject</label>
+                  <input value={form.subject} onChange={e => setForm(p => ({ ...p, subject: e.target.value }))} placeholder="Ticket subject" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none" />
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Priority</label>
+                  <select value={form.priority} onChange={e => setForm(p => ({ ...p, priority: e.target.value }))} className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm bg-white focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none">
+                    <option value="low">Low</option>
+                    <option value="medium">Medium</option>
+                    <option value="high">High</option>
+                    <option value="critical">Critical</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-xs font-medium text-gray-600 block mb-1">Description</label>
+                <textarea value={form.description} onChange={e => setForm(p => ({ ...p, description: e.target.value }))} rows={3} placeholder="Describe the issue…" className="w-full px-3 py-2 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none resize-none" />
+              </div>
+              <div className="flex justify-end">
+                <button onClick={handleCreate} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition"><Save className="w-4 h-4" /> Create</button>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <div className="grid sm:grid-cols-3 gap-4">
+        <StatCard icon={AlertCircle} label="Open" value={stats.open ?? tickets.filter((t: any) => t.status === 'open').length} color="amber" />
+        <StatCard icon={Clock} label="In Progress" value={stats.in_progress ?? tickets.filter((t: any) => t.status === 'in_progress' || t.status === 'in-progress').length} color="blue" />
+        <StatCard icon={Check} label="Resolved" value={stats.resolved ?? tickets.filter((t: any) => t.status === 'resolved').length} color="emerald" />
+      </div>
+
+      {tickets.length === 0 ? <EmptyState message="No tickets" /> : (
+        <div className="bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 border-b border-gray-200">
+              <tr>
+                {['Subject', 'Priority', 'Status', 'Created By', 'Created', 'Updated'].map(h => (
+                  <th key={h} className="text-left px-5 py-3 font-semibold text-gray-600 text-xs uppercase tracking-wide">{h}</th>
+                ))}
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-gray-100">
+              {tickets.map((t: any, i: number) => (
+                <tr key={i} className="hover:bg-gray-50 transition">
+                  <td className="px-5 py-3 font-medium text-gray-900">{t.subject ?? t.title}</td>
+                  <td className="px-5 py-3"><StatusBadge status={t.priority ?? 'medium'} /></td>
+                  <td className="px-5 py-3"><StatusBadge status={t.status ?? 'open'} /></td>
+                  <td className="px-5 py-3 text-gray-600">{t.created_by ?? t.reporter ?? '-'}</td>
+                  <td className="px-5 py-3 text-gray-500 text-xs">{t.created_at ? new Date(t.created_at).toLocaleDateString() : '-'}</td>
+                  <td className="px-5 py-3 text-gray-500 text-xs">{t.updated_at ? new Date(t.updated_at).toLocaleDateString() : '-'}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── REPORTS VIEW ────────────────────────────────────────
+
+function ReportsView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    platformAdminService.getReports().then(r => setData(r.data)).catch(() => toast.error('Failed to load reports')).finally(() => setLoading(false));
+  }, []);
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No reports data" />;
+
+  const summary = data.summary ?? {};
+  const risk = data.risk_overview ?? {};
+  const escalations = data.escalations ?? {};
+  const health = data.platform_health ?? {};
+
+  return (
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Reports" />
+
+      {Object.keys(summary).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Summary" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(summary).map(([key, val]: [string, any]) => (
+              <div key={key} className="p-4 bg-gray-50 rounded-lg">
+                <p className="text-xs text-gray-500 capitalize mb-1">{key.replace(/_/g, ' ')}</p>
+                <p className="text-lg font-bold text-gray-800">{typeof val === 'number' ? val.toLocaleString() : String(val)}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {Object.keys(risk).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <SectionHeader title="Risk Overview" />
+          <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {Object.entries(risk).map(([key, val]: [string, any]) => (
+              <div key={key} className="flex items-center gap-3 p-4 border border-gray-200 rounded-lg">
+                <AlertTriangle className={`w-5 h-5 shrink-0 ${key.includes('critical') || key.includes('high') ? 'text-red-500' : 'text-amber-500'}`} />
+                <div>
+                  <p className="text-xs text-gray-500 capitalize">{key.replace(/_/g, ' ')}</p>
+                  <p className="text-lg font-bold text-gray-800">{typeof val === 'number' ? val.toLocaleString() : String(val)}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      <div className="grid lg:grid-cols-2 gap-6">
+        {Object.keys(escalations).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Escalations Summary" />
+            <div className="space-y-3">
+              {Object.entries(escalations).map(([key, val]: [string, any]) => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-semibold text-gray-900">{typeof val === 'number' ? val.toLocaleString() : String(val)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {Object.keys(health).length > 0 && (
+          <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <SectionHeader title="Platform Health" />
+            <div className="space-y-3">
+              {Object.entries(health).map(([key, val]: [string, any]) => (
+                <div key={key} className="flex justify-between py-2 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 capitalize">{key.replace(/_/g, ' ')}</span>
+                  <span className="text-sm font-semibold text-gray-900">{typeof val === 'number' ? val.toLocaleString() : String(val)}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+    </motion.div>
+  );
+}
+
+// ── SETTINGS VIEW ───────────────────────────────────────
+
+function SettingsView() {
+  const [data, setData] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [edited, setEdited] = useState<any>(null);
+
+  useEffect(() => {
+    platformAdminService.getSettings().then(r => {
+      setData(r.data);
+      setEdited(r.data);
+    }).catch(() => toast.error('Failed to load settings')).finally(() => setLoading(false));
+  }, []);
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await platformAdminService.updateSettings(edited);
+      toast.success('Settings saved');
+      setData(edited);
+    } catch { toast.error('Failed to save settings'); }
+    finally { setSaving(false); }
+  };
+
+  if (loading) return <Loader />;
+  if (!data) return <EmptyState message="No settings data" />;
+
+  const sections: { key: string; title: string; icon: any }[] = [
+    { key: 'general', title: 'General Configuration', icon: Settings },
+    { key: 'ml_pipeline', title: 'ML Pipeline Settings', icon: Brain },
+    { key: 'notifications', title: 'Notification Preferences', icon: Megaphone },
+    { key: 'data_retention', title: 'Data Retention', icon: Archive },
+  ];
+
+  const renderValue = (sectionKey: string, key: string, val: any) => {
+    if (typeof val === 'boolean') {
+      return (
+        <button
+          onClick={() => setEdited((prev: any) => ({ ...prev, [sectionKey]: { ...prev[sectionKey], [key]: !val } }))}
+          className={`relative w-10 h-5 rounded-full transition ${val ? 'bg-indigo-600' : 'bg-gray-300'}`}
+        >
+          <span className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-all ${val ? 'left-5' : 'left-0.5'}`} />
+        </button>
+      );
+    }
+    if (typeof val === 'number') {
+      return (
+        <input
+          type="number"
+          value={val}
+          onChange={e => setEdited((prev: any) => ({ ...prev, [sectionKey]: { ...prev[sectionKey], [key]: Number(e.target.value) } }))}
+          className="w-24 px-2 py-1 text-right border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+        />
+      );
+    }
+    if (typeof val === 'string') {
+      return (
+        <input
+          value={val}
+          onChange={e => setEdited((prev: any) => ({ ...prev, [sectionKey]: { ...prev[sectionKey], [key]: e.target.value } }))}
+          className="w-48 px-2 py-1 border border-gray-200 rounded-lg text-sm focus:ring-2 focus:ring-indigo-200 focus:border-indigo-400 outline-none"
+        />
+      );
+    }
+    return <span className="text-sm text-gray-700">{JSON.stringify(val)}</span>;
   };
 
   return (
-    <div className="bg-white rounded-[40px] border border-gray-100 p-8 shadow-sm space-y-4">
-       <div className={cn("w-12 h-12 rounded-2xl flex items-center justify-center border", colors[color])}>
-          <Icon className="w-6 h-6" />
-       </div>
-       <div>
-          <p className="text-3xl font-black text-gray-900">{value}</p>
-          <p className="text-xs font-black text-gray-400 uppercase tracking-widest mb-1">{label}</p>
-          <p className="text-[10px] text-gray-500 font-medium italic">{subtext}</p>
-       </div>
-    </div>
-  );
-}
+    <motion.div {...fade} className="space-y-6">
+      <SectionHeader title="Settings" actions={
+        <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-4 py-2 bg-indigo-600 text-white text-sm rounded-lg hover:bg-indigo-700 transition disabled:opacity-50">
+          {saving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+          {saving ? 'Saving…' : 'Save Changes'}
+        </button>
+      } />
 
-function MiniStat({ label, value, trend }: any) {
-  return (
-    <div className="p-4 bg-gray-50 rounded-[24px] border border-gray-100">
-       <p className="text-[10px] text-gray-400 font-bold uppercase tracking-widest mb-1">{label}</p>
-       <div className="flex items-center justify-between">
-          <p className="text-lg font-black text-gray-900">{value}</p>
-          <span className="text-[10px] font-black text-green-600 bg-green-50 px-1.5 py-0.5 rounded-lg">{trend}</span>
-       </div>
-    </div>
-  );
-}
-
-function HealthBar({ label, value, status }: any) {
-  return (
-    <div className="space-y-2">
-       <div className="flex items-center justify-between text-xs font-bold">
-          <span className="text-primary-300 uppercase tracking-widest">{label}</span>
-          <span className="text-primary-100">{status}</span>
-       </div>
-       <div className="flex items-center gap-3">
-          <div className="flex-1 h-2 bg-primary-800 rounded-full overflow-hidden">
-             <div className="h-full bg-gradient-to-r from-blue-400 to-green-400" style={{ width: `${value}%` }} />
+      {sections.map(({ key, title, icon: Icon }) => {
+        const sectionData = edited?.[key];
+        if (!sectionData || typeof sectionData !== 'object') return null;
+        return (
+          <div key={key} className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+            <div className="flex items-center gap-2 mb-4">
+              <Icon className="w-5 h-5 text-indigo-500" />
+              <h4 className="font-semibold text-gray-900">{title}</h4>
+            </div>
+            <div className="space-y-3">
+              {Object.entries(sectionData).map(([k, v]) => (
+                <div key={k} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                  <span className="text-sm text-gray-600 capitalize">{k.replace(/_/g, ' ')}</span>
+                  {renderValue(key, k, v)}
+                </div>
+              ))}
+            </div>
           </div>
-          <span className="text-[10px] font-black">{value}%</span>
-       </div>
+        );
+      })}
+
+      {Object.keys(data).filter(k => !sections.some(s => s.key === k)).length > 0 && (
+        <div className="bg-white rounded-xl border border-gray-200 p-6 shadow-sm">
+          <h4 className="font-semibold text-gray-900 mb-4">Other Settings</h4>
+          <div className="space-y-3">
+            {Object.entries(data).filter(([k]) => !sections.some(s => s.key === k)).map(([k, v]) => (
+              <div key={k} className="flex items-center justify-between py-2.5 border-b border-gray-50 last:border-0">
+                <span className="text-sm text-gray-600 capitalize">{k.replace(/_/g, ' ')}</span>
+                <span className="text-sm text-gray-700">{typeof v === 'object' ? JSON.stringify(v) : String(v)}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+    </motion.div>
+  );
+}
+
+// ── SIDEBAR NAVIGATION ──────────────────────────────────
+
+const navItems = [
+  { path: '/admin', label: 'Overview', icon: LayoutDashboard },
+  { path: '/admin/organizations', label: 'Organizations', icon: Landmark },
+  { path: '/admin/hospitals', label: 'Hospitals', icon: Building2 },
+  { path: '/admin/users', label: 'Users & Roles', icon: UserCog },
+  { path: '/admin/ai-control', label: 'AI Control Center', icon: Brain },
+  { path: '/admin/analytics', label: 'Platform Analytics', icon: BarChart3 },
+  { path: '/admin/escalations', label: 'Escalation Monitor', icon: Siren },
+  { path: '/admin/billing', label: 'Billing & Subscriptions', icon: CreditCard },
+  { path: '/admin/infrastructure', label: 'Infrastructure', icon: Server },
+  { path: '/admin/security', label: 'Security & Compliance', icon: Shield },
+  { path: '/admin/communication', label: 'Communication Center', icon: MessagesSquare },
+  { path: '/admin/audit-logs', label: 'Audit Logs', icon: FileText },
+  { path: '/admin/integrations', label: 'Integrations', icon: Plug },
+  { path: '/admin/support', label: 'Support & Tickets', icon: LifeBuoy },
+  { path: '/admin/reports', label: 'Reports', icon: FileBarChart },
+  { path: '/admin/settings', label: 'Settings', icon: Settings },
+];
+
+function AdminSidebar({ currentPath }: { currentPath: string }) {
+  const isActive = (path: string) => {
+    if (path === '/admin') return currentPath === '/admin' || currentPath === '/admin/';
+    return currentPath.startsWith(path);
+  };
+
+  return (
+    <nav className="w-64 shrink-0 bg-white border-r border-gray-200 overflow-y-auto hidden lg:block">
+      <div className="px-5 py-5 border-b border-gray-100">
+        <div className="flex items-center gap-2.5">
+          <div className="p-2 bg-indigo-600 rounded-lg"><Shield className="w-5 h-5 text-white" /></div>
+          <div>
+            <h2 className="text-sm font-bold text-gray-900">Platform Admin</h2>
+            <p className="text-xs text-gray-400">Control Center</p>
+          </div>
+        </div>
+      </div>
+      <div className="py-3 px-3 space-y-0.5">
+        {navItems.map(({ path, label, icon: Icon }) => (
+          <a
+            key={path}
+            href={path}
+            onClick={e => { e.preventDefault(); window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }}
+            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition group ${
+              isActive(path) ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
+            }`}
+          >
+            <Icon className={`w-4 h-4 shrink-0 ${isActive(path) ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
+            <span className="truncate">{label}</span>
+            {isActive(path) && <ChevronRight className="w-3.5 h-3.5 ml-auto text-indigo-400" />}
+          </a>
+        ))}
+      </div>
+    </nav>
+  );
+}
+
+function MobileNav({ currentPath }: { currentPath: string }) {
+  const [open, setOpen] = useState(false);
+  const current = navItems.find(n => {
+    if (n.path === '/admin') return currentPath === '/admin' || currentPath === '/admin/';
+    return currentPath.startsWith(n.path);
+  });
+
+  return (
+    <div className="lg:hidden">
+      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm">
+        <div className="flex items-center gap-2">
+          {current && <current.icon className="w-4 h-4 text-indigo-600" />}
+          <span className="font-medium text-gray-900">{current?.label ?? 'Navigate'}</span>
+        </div>
+        <ChevronRight className={`w-4 h-4 text-gray-400 transition ${open ? 'rotate-90' : ''}`} />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-lg">
+            {navItems.map(({ path, label, icon: Icon }) => {
+              const active = path === '/admin' ? (currentPath === '/admin' || currentPath === '/admin/') : currentPath.startsWith(path);
+              return (
+                <a
+                  key={path}
+                  href={path}
+                  onClick={e => { e.preventDefault(); window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); setOpen(false); }}
+                  className={`flex items-center gap-2.5 px-4 py-2.5 text-sm transition ${active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
+                >
+                  <Icon className={`w-4 h-4 ${active ? 'text-indigo-600' : 'text-gray-400'}`} />
+                  {label}
+                </a>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
+// ── VIEW ROUTER ─────────────────────────────────────────
+
+function resolveView(pathname: string) {
+  const p = pathname.replace(/\/+$/, '') || '/admin';
+  const map: Record<string, () => JSX.Element> = {
+    '/admin': () => <OverviewView />,
+    '/admin/organizations': () => <OrganizationsView />,
+    '/admin/hospitals': () => <HospitalsView />,
+    '/admin/users': () => <UsersView />,
+    '/admin/ai-control': () => <AIControlView />,
+    '/admin/analytics': () => <AnalyticsView />,
+    '/admin/escalations': () => <EscalationsView />,
+    '/admin/billing': () => <BillingView />,
+    '/admin/infrastructure': () => <InfrastructureView />,
+    '/admin/security': () => <SecurityView />,
+    '/admin/communication': () => <CommunicationView />,
+    '/admin/audit-logs': () => <AuditLogsView />,
+    '/admin/integrations': () => <IntegrationsView />,
+    '/admin/support': () => <SupportView />,
+    '/admin/reports': () => <ReportsView />,
+    '/admin/settings': () => <SettingsView />,
+  };
+  return (map[p] ?? map['/admin'])();
+}
+
+function getViewTitle(pathname: string) {
+  const p = pathname.replace(/\/+$/, '') || '/admin';
+  return navItems.find(n => n.path === p)?.label ?? 'Overview';
+}
+
+// ── MAIN COMPONENT ──────────────────────────────────────
+
+export default function AdminDashboardPage() {
+  const location = useLocation();
+  const pathname = location.pathname;
+
+  return (
+    <div className="flex h-full min-h-0">
+      <AdminSidebar currentPath={pathname} />
+
+      <div className="flex-1 min-w-0 overflow-y-auto bg-gray-50">
+        <div className="sticky top-0 z-10 bg-gradient-to-r from-slate-900 to-indigo-900 px-6 py-5 lg:px-8">
+          <h1 className="text-xl font-bold text-white">{getViewTitle(pathname)}</h1>
+          <p className="text-sm text-indigo-200 mt-0.5">Platform Administration</p>
+        </div>
+
+        <div className="p-4 lg:p-6 space-y-6">
+          <MobileNav currentPath={pathname} />
+
+          <AnimatePresence mode="wait">
+            <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
+              {resolveView(pathname)}
+            </motion.div>
+          </AnimatePresence>
+        </div>
+      </div>
     </div>
   );
 }

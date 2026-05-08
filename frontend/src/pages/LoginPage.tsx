@@ -21,7 +21,7 @@ export default function LoginPage() {
       const { data } = await authService.login(email, password);
       setAuth(data);
       toast.success('Welcome back! 💜');
-      navigate('/dashboard');
+      navigate('/');
     } catch (err: any) {
       toast.error(err.response?.data?.detail || 'Login failed. Please try again.');
     } finally {

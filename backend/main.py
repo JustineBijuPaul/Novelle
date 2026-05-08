@@ -105,6 +105,7 @@ from app.api.routes.ingestion import router as ingestion_router
 from app.api.routes.telemedicine import router as telemedicine_router
 from app.api.routes.mlops import router as mlops_router
 from app.api.routes.compliance import router as compliance_router
+from app.api.routes.patient import router as patient_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -120,6 +121,7 @@ app.include_router(ingestion_router, prefix="/api/ingestion")
 app.include_router(telemedicine_router, prefix="/api/telemedicine")
 app.include_router(mlops_router, prefix="/api/mlops")
 app.include_router(compliance_router, prefix="/api/compliance")
+app.include_router(patient_router, prefix="/api")
 
 @app.get("/api/videos/list")
 async def list_available_videos():
