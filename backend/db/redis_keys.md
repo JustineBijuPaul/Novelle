@@ -1,4 +1,7 @@
 # Novelle — Redis Key Conventions & TTL Reference
+
+See also the root [README.md](../../README.md) for stack overview and [BACKEND_GUIDE.md](../../BACKEND_GUIDE.md) for Redis setup.
+
 # ====================================================
 # All keys follow the pattern:  novelle:{scope}:{identifier}
 # Serialization: JSON strings unless noted

@@ -41,6 +41,18 @@ jupyter notebook notebooks/
 
 Model artifacts will be saved to `backend/app/ml/models/`.
 
+### Backend training scripts (alternative to notebooks)
+
+From the `backend/` directory with the project venv activated:
+
+| Command | Output |
+| ------- | ------ |
+| `python -m app.ml.train_risk_models` | Core mental / physical / fetal risk `.joblib` artifacts |
+| `python -m app.ml.train_v2_models` | Additional operational models (BP forecaster, GDM, engagement, escalation ranker, no-show, note summarizer, recommendations, preterm, etc.) |
+| `python -m app.ml.train_v2_real_data` | Same family trained on real/sourced data when paths and datasets are configured |
+
+These complement the notebooks for CI-friendly or headless training.
+
 ---
 
 ## Datasets
@@ -173,6 +185,22 @@ synthesizer.fit(real_data)
 synthetic_data = synthesizer.sample(num_rows=10000)
 synthetic_data.to_csv('datasets/synthetic_health_logs_expanded.csv', index=False)
 ```
+
+---
+
+## Dataset → training path (reference)
+
+| Data | Typical source | Used in repository by |
+|------|----------------|------------------------|
+| **Synthetic mental / physical / fetal rows** | Generated in Python (`train_risk_models.py`), optional SDV GaussianCopula | `python -m app.ml.train_risk_models` |
+| **Synthetic operational scenarios** | Generators inside `train_v2_models.py` | `python -m app.ml.train_v2_models` |
+| **Maternal Health Risk CSV** | [Kaggle: csafrit2 maternal health risk](https://www.kaggle.com/datasets/csafrit2/maternal-health-risk-data-set) | `train_v2_real_data.py` — preterm proxy, escalation |
+| **Fetal CTG CSV** | [Kaggle: fetal health classification](https://www.kaggle.com/datasets/andrewmvd/fetal-health-classification) | **Notebooks** / custom pipelines (default trainer uses synthetic CTG-like data) |
+| **Pima Indians Diabetes** | UCI / [Kaggle mirrors](https://www.kaggle.com/datasets/uciml/pima-indians-diabetes-database) | `train_v2_real_data.py` — GDM proxy (`gdm/diabetes.csv`) |
+| **Appointment no-show (Brazil)** | [Kaggle / Joniarroba noshowappointments](https://www.kaggle.com/datasets/joniarroba/noshowappointments) (`KaggleV2-May-2016.csv`) | `train_v2_real_data.py` — engagement + no-show |
+| **Synthetic health logs** | Repo-generated `synthetic_health_logs.csv` | `train_v2_real_data.py` — BP forecaster |
+| **OB-GYN notes** | `obgyn_clinical_notes.csv` (project bundle; `transcription` column) | `train_v2_real_data.py` — summarizer TF-IDF |
+| **Notebook CSVs** | `ml/datasets/synthetic_*.csv` | Jupyter workflows in this folder |
 
 ---
 

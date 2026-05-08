@@ -7,9 +7,9 @@
 
 | Field | Details |
 |---|---|
-| **Document Version** | v1.0 |
+| **Document Version** | v1.1 |
 | **Status** | Draft |
-| **Date** | February 2026 |
+| **Date** | February 2026 (implementation snapshot May 2026) |
 | **Classification** | Confidential |
 | **Product Owner** | Pregnancy Friend Team |
 
@@ -36,6 +36,11 @@
 12. [Product Roadmap](#12-product-roadmap)
 13. [Risks & Mitigation](#13-risks--mitigation)
 14. [Glossary](#14-glossary)
+
+---
+
+> **Implementation snapshot (May 2026)**  
+> The repository implements a multi-role web application: **patient** (`/patient/*`), **doctor** (`/doctor/*`), **hospital administrator** (`/hospital-admin/*`), and **platform administrator** (`/admin/*`) experiences, backed by FastAPI with PostgreSQL, MongoDB, and Redis. Hospital-scoped and platform-scoped JSON APIs live under `/api/hospital-admin` and `/api/platform-admin`; patient and doctor flows use `/api/patient`, `/api/doctor`, and shared `/api/*` modules. For setup, API prefixes, and training scripts see the root **README.md** and **BACKEND_GUIDE.md** §0.
 
 ---
 
@@ -250,6 +255,8 @@ Globally, 295,000 women die annually from preventable pregnancy-related complica
 
 > ⚠️ **Core ML Constraint**
 > All models predict RISK LIKELIHOOD only (Low / Medium / High). No model shall be trained or deployed to provide a medical diagnosis. All outputs must be accompanied by the medical disclaimer.
+
+**Implementation inventory (May 2026):** The shipped codebase trains and loads models documented in **`docs/ML_MODELS_AND_DATASETS.md`** — including core XGBoost/LightGBM risk classifiers on **synthetic + SDV-augmented** data, optional **v2** models (preterm proxy, BP forecaster, GDM proxy, engagement, escalation ranker, no-show, TF-IDF recommender, extractive summarizer), optional **TF-IDF sentiment/emotion** joblibs, and CSV-backed paths for Kaggle/UCI datasets. Sections below remain the **product target**; the doc above is the **engineering truth** for filenames and training scripts.
 
 ### 6.1 Mental Health Risk Model
 

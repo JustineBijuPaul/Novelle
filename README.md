@@ -2,282 +2,275 @@
 
 **Empowering mothers with intelligent, compassionate pregnancy health monitoring**
 
-> ⚠️ **Disclaimer**: Novelle is a risk-prediction support tool, NOT a diagnostic system. All outputs represent statistical risk likelihood estimates. Always consult qualified healthcare professionals for medical decisions.
+> **Disclaimer:** Novelle is a risk-prediction support tool, not a diagnostic system. All outputs are statistical risk likelihood estimates. Always consult qualified healthcare professionals for medical decisions.
 
 ---
 
 ## Overview
 
-Novelle is a full-stack AI-powered maternal health platform that tracks physical, mental, and fetal health throughout pregnancy. It provides risk likelihood assessments across three domains, an empathetic AI companion, journal features, hospital locator, smart reminders, and a doctor portal for clinical oversight.
+Novelle is a full-stack platform for maternal health. It combines **patient** self-monitoring (health logs, mental health, AI insights, appointments), **doctor** clinical workflows (patients, appointments, escalations, notes, telehealth), **hospital administrator** operations (staff, patients, appointments, resources, communication), and **platform administrator** oversight (organizations, billing, security, analytics, global escalations). Core domains remain **mental**, **physical**, and **fetal** risk awareness, with escalation paths into clinical workflows.
 
-### Key Features
+### Key features
 
-
-| Feature                      | Description                                                                             |
-| ---------------------------- | --------------------------------------------------------------------------------------- |
-| **3-Domain Risk Assessment** | Mental (PHQ-9, GAD-7, EPDS), Physical (BP, blood sugar, BMI), Fetal health risk scoring |
-| **AI Companion**             | Empathetic conversational AI with crisis detection and emotional support                |
-| **Daily Health Logging**     | Track BP, blood sugar, weight, sleep, fetal movements, and symptoms                     |
-| **Mental Health Check-In**   | Mood scoring, anxiety/depression screening, emotion tracking                            |
-| **Baby Growth Tracker**      | Week-by-week fetal development milestones (weeks 4–40)                                  |
-| **Private Journal**          | Encrypted emotional journaling with sentiment analysis                                  |
-| **Hospital Locator**         | Find nearby hospitals using GPS with distance calculation                               |
-| **Smart Reminders**          | Medication, appointment, and wellness reminders                                         |
-| **Doctor Portal**            | Patient monitoring, risk dashboards, and escalation management                          |
-| **GDPR Compliant**           | Right to deletion, data export, consent management                                      |
-
+| Feature | Description |
+| -------- | ----------- |
+| **3-domain risk assessment** | Mental (screeners, mood), physical (vitals, symptoms), fetal risk signals |
+| **Patient portal** | Dashboard, pregnancy timeline, AI insights, symptoms, appointments, teleconsultation, daily goals, wellness, risk reports, emergency info |
+| **Doctor portal** | Dashboard, patients, appointments (newest first), escalations, monitoring, clinical notes, prescriptions, telehealth, AI copilot, reports, communication, tasks, settings |
+| **Hospital admin** | Command center, patients & doctor assignment, appointments, escalations (routing), staff & workload, resources, communication, analytics, AI insights, reports, hospital records, settings |
+| **Platform admin** | Overview, organizations, hospitals, users & provisioning, AI control center, analytics, global escalations, billing, infrastructure, security, communication, audit logs, integrations, support, reports, settings |
+| **AI companion & journal** | Conversational support, journaling (Features routes) |
+| **Telemedicine** | Session-oriented API + in-app telehealth views |
+| **ML & MLOps** | Risk models plus optional v2 operational models (forecasts, engagement, no-show, etc.); training scripts in `backend/app/ml/` |
+| **Event & notifications** | Background ingestion worker; clinical event bus wiring at startup |
 
 ---
 
-## Tech Stack
+## Documentation map
+
+| Document | Purpose |
+| -------- | ------- |
+| **README.md** (this file) | Quick orientation, setup, routes, environment |
+| [BACKEND_GUIDE.md](./BACKEND_GUIDE.md) | Databases, datasets, training pipelines, deployment detail |
+| [docs/ML_MODELS_AND_DATASETS.md](./docs/ML_MODELS_AND_DATASETS.md) | **Full ML inventory:** models, artifacts, training metrics methodology, datasets & sources |
+| [prd.md](./prd.md) | Product requirements and vision |
+| [ml/notebooks/README.md](./ml/notebooks/README.md) | Jupyter training workflow for core risk models |
+
+---
+
+## Tech stack
 
 ### Backend
 
-- **Framework**: FastAPI (Python 3.11+), async/await
-- **Database**: PostgreSQL 16 (SQLAlchemy async ORM) + MongoDB 7 (Motor) + Redis 7
-- **Auth**: JWT (python-jose) + bcrypt password hashing
-- **ML**: Trained XGBoost (Mental Health), Ensemble (Physical Health), LightGBM (Fetal Health), and Logistic Regression (NLP Sentiment) models using SMOTE for class imbalance. SHAP integration for explainability.
-- **NLP**: Sentiment analysis, crisis keyword detection, emotion classification
+- **Framework:** FastAPI (async), Python 3.11+
+- **Data:** PostgreSQL (SQLAlchemy 2 async), MongoDB (Motor), Redis
+- **Auth:** JWT (`python-jose`), bcrypt/password hashing (`SECRET_KEY`, `ALGORITHM` in settings)
+- **ML:** scikit-learn, XGBoost, LightGBM, imbalanced-learn, SHAP; optional DistilBERT / sentiment stack in `requirements.txt`
+- **Companion / LLM:** Configurable providers (see `backend/app/core/config.py` — use env vars, never commit real keys)
 
 ### Frontend
 
-- **Framework**: React 18 + TypeScript + Vite
-- **Styling**: Tailwind CSS 3.4 with custom design system
-- **State**: Zustand (persisted auth store)
-- **Charts**: Recharts
-- **Animations**: Framer Motion
-- **Icons**: Lucide React
+- **React 18** + **TypeScript** + **Vite**
+- **Tailwind CSS**, **Zustand** (auth), **Axios**, **Recharts**, **Framer Motion**, **Lucide**, **react-hot-toast**
 
 ### DevOps
 
-- Docker Compose (PostgreSQL, MongoDB, Redis, Backend, Frontend)
-- Nginx reverse proxy for production frontend
+- Docker Compose for local full stack (see `docker-compose.yml`)
+- Optional Nginx for production frontend (`frontend/nginx.conf`)
 
 ---
 
-## Project Structure
+## Repository layout
 
 ```
-novelle/
+pregency-friend/          # repo root (name may vary locally)
 ├── backend/
-│   ├── main.py                  # FastAPI app entry point
-│   ├── requirements.txt         # Python dependencies
+│   ├── main.py                    # FastAPI entry; route registration, lifespan
+│   ├── requirements.txt
 │   ├── Dockerfile
 │   ├── .env.example
 │   └── app/
-│       ├── core/                # Config, database, security
-│       ├── models/              # SQLAlchemy ORM models
-│       ├── schemas/             # Pydantic v2 request/response schemas
-│       ├── api/routes/          # API endpoint handlers
-│       ├── services/            # Business logic (RiskEngine, NLP, CompanionAI)
-│       └── ml/pipelines/        # ML model stubs
+│       ├── core/                  # config, database, security
+│       ├── models/                # SQLAlchemy ORM
+│       ├── schemas/               # Pydantic schemas
+│       ├── api/routes/            # auth, patient, doctor, hospital_admin, platform_admin, …
+│       ├── services/              # risk engine, NLP, notifications, hospital ops, …
+│       └── ml/                    # train_*.py, pipelines/, models/
 ├── frontend/
 │   ├── package.json
 │   ├── vite.config.ts
-│   ├── Dockerfile
-│   ├── nginx.conf
 │   └── src/
-│       ├── App.tsx              # Router
-│       ├── components/layout/   # Sidebar, Header, AppLayout
-│       ├── pages/               # All page components
-│       ├── services/            # API client & endpoints
-│       ├── stores/              # Zustand state management
-│       ├── types/               # TypeScript type definitions
-│       └── utils/               # Helpers, fetal milestone data
-├── ml/notebooks/                # Jupyter notebooks for model development
+│       ├── App.tsx                # Role-aware routes
+│       ├── components/layout/     # AppLayout, Sidebar, Header
+│       ├── pages/                 # Patient, doctor, admin, hospital-admin pages
+│       ├── services/endpoints.ts  # API client helpers
+│       ├── stores/
+│       └── utils/
+├── ml/notebooks/                  # Jupyter model development
 ├── docker-compose.yml
-└── README.md
+├── README.md
+├── BACKEND_GUIDE.md
+└── prd.md
 ```
 
 ---
 
-## Getting Started
+## Getting started
 
 ### Prerequisites
 
 - Python 3.11+
 - Node.js 20+
-- PostgreSQL 16+
-- MongoDB 7+
-- Redis 7+
+- PostgreSQL 14+ (16 recommended)
+- MongoDB 6/7+
+- Redis 6/7+
 - Docker & Docker Compose (optional)
 
-### Running Infrastructure with Docker (Local Dev)
-
-If you prefer running just the databases via Docker while running the frontend/backend locally:
+### Environment files
 
 ```bash
-# Start MongoDB and Redis in the background
-docker compose up -d mongodb redis
-
-#Starting the existing containers
-docker start novelle-redis novelle-mongodb 
-```
-
-### Quick Start with Docker
-
-```bash
-# Clone the repository
-git clone <repo-url> novelle
-cd novelle
-
-# Create backend .env file
 cp backend/.env.example backend/.env
-# Edit backend/.env with your settings
-
-# Start all services
-docker compose up --build
-
-# Access the app
-# Frontend: http://localhost:3000
-# Backend API: http://localhost:8000
-# API Docs: http://localhost:8000/docs
+# Edit DATABASE_URL, MONGODB_URL, REDIS_URL, SECRET_KEY, optional LLM keys
 ```
 
-### Manual Setup
+### Databases only (Docker)
 
-#### Backend
+```bash
+docker compose up -d mongodb redis postgres   # use whatever services exist in compose
+```
+
+### Backend
 
 ```bash
 cd backend
-
-# Create virtual environment
 python -m venv venv
-source venv/bin/activate  # Linux/macOS
-# venv\Scripts\activate   # Windows
-
-# Install dependencies
+source venv/bin/activate   # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-
-# Set environment variables
-cp .env.example .env
-# Edit .env with your database URLs
-
-# Run the server
-uvicorn main:app --reload --port 8000
+python main.py             # serves http://0.0.0.0:8000 (see main for PORT)
+# Or: uvicorn main:app --reload --port 8000
 ```
 
-#### Frontend
+- **Swagger UI:** http://localhost:8000/docs  
+- **OpenAPI JSON:** http://localhost:8000/openapi.json  
+
+### Frontend
 
 ```bash
 cd frontend
-
-# Install dependencies
 npm install
-
-# Start development server
-npm run dev
-# Opens at http://localhost:3000
+npm run dev      # http://localhost:3000 (or Vite default port)
 ```
 
-### Test Credentials
+### Full stack (Docker)
+
+```bash
+docker compose up --build
+# Frontend: http://localhost:3000
+# API: http://localhost:8000
+```
+
+---
+
+## Roles, login, and main URLs
+
+After login, users are redirected by role. Primary shells:
+
+| Role | Default area | Example paths |
+| ---- | ------------ | ------------- |
+| Patient | `/patient` | `/patient/appointments`, `/patient/health-log`, … |
+| Doctor | `/doctor` | `/doctor/appointments`, `/doctor/patients`, … |
+| Hospital admin | `/hospital-admin` | `/hospital-admin/patients`, `/hospital-admin/escalations`, … |
+| Platform admin | `/admin` | `/admin/users`, `/admin/escalations`, … |
+
+### Test credentials (seed / dev; change in production)
 
 | Role | Email | Password |
-| :--- | :--- | :--- |
-| **Patient (Pregnant)** | `patient@novelle.com` | `Password123` |
-| **Patient (Postpartum)** | `postpartum@novelle.com` | `Password123` |
-| **Doctor** | `doctor@novelle.com` | `Password123` |
-| **Hospital Admin** | `hadmin@novelle.com` | `Password123` |
-| **Platform Admin** | `admin@novelle.com` | `Password123` |
-
-
-## API Endpoints
-
-
-| Method | Endpoint                         | Description                     |
-| ------ | -------------------------------- | ------------------------------- |
-| POST   | `/api/auth/register`             | User registration               |
-| POST   | `/api/auth/login`                | Login (returns JWT)             |
-| GET    | `/api/auth/me`                   | Get current user                |
-| POST   | `/api/profile/`                  | Create pregnancy profile        |
-| GET    | `/api/profile/`                  | Get pregnancy profile           |
-| POST   | `/api/health/`                   | Log daily health data           |
-| GET    | `/api/health/summary`            | Get health summary with trends  |
-| POST   | `/api/mental-health/`            | Submit mental health assessment |
-| GET    | `/api/mental-health/mood-trend`  | Get mood trend data             |
-| GET    | `/api/risk/full-report`          | Trigger full risk assessment    |
-| GET    | `/api/risk/history`              | Risk score history              |
-| POST   | `/api/features/companion/chat`   | AI companion conversation       |
-| POST   | `/api/features/journal/`         | Create journal entry            |
-| GET    | `/api/features/hospitals/nearby` | Find nearby hospitals           |
-| GET    | `/api/features/reminders/`       | List reminders                  |
-| GET    | `/api/doctor/dashboard`          | Doctor portal dashboard         |
-
-
-Full interactive docs at `http://localhost:8000/docs` (Swagger UI).
+| ---- | ----- | -------- |
+| Patient (pregnant) | `patient@novelle.com` | `Password123` |
+| Patient (postpartum) | `postpartum@novelle.com` | `Password123` |
+| Doctor | `doctor@novelle.com` | `Password123` |
+| Hospital admin | `hadmin@novelle.com` | `Password123` |
+| Platform admin | `admin@novelle.com` | `Password123` |
 
 ---
 
-## Risk Scoring
+## HTTP API overview
 
-Novelle assesses risk across three domains:
+Global prefix: **`/api`** (see `backend/main.py`).
 
-### Mental Health Risk
+| Prefix | Router | Typical use |
+| ------ | ------ | ----------- |
+| `/api/auth`, `/api/profile`, `/api/health`, `/api/mental-health`, `/api/risk`, `/api/features` | Core + features | Patient and shared flows |
+| `/api/patient` | Patient portal | Dashboard-style aggregates, appointments, doctors, daily goals, wellness, … |
+| `/api/doctor` | Doctor portal | Patients, appointments, escalations, notes, prescriptions, tasks, … |
+| `/api/admin` | Admin (legacy/aux) | Older `/admin` tag routes if used |
+| `/api/hospital-admin` | Hospital admin | Staff, patients, appointments, escalations, resources, settings, … |
+| `/api/platform-admin` | Platform admin | Organizations, hospitals, users, billing, analytics, security, … |
+| `/api/ingestion` | Ingestion | Data ingestion pipeline |
+| `/api/telemedicine` | Telemedicine | Sessions |
+| `/api/mlops` | MLOps | Model / pipeline operations |
+| `/api/compliance` | Compliance tooling | Compliance-related endpoints |
 
-- **Inputs**: PHQ-9, GAD-7, EPDS scores, mood, stress level, sleep quality, social support, journal sentiment
-- **Scoring**: Weighted rule-based model → LOW / MEDIUM / HIGH
-- **Crisis Detection**: Keyword-based NLP flags URGENT, REVIEW_NEEDED, or SAFE
+Core auth examples:
 
-### Physical Health Risk
+| Method | Path | Description |
+| ------ | ---- | ----------- |
+| POST | `/api/auth/register` | Registration |
+| POST | `/api/auth/login` | JWT login |
+| GET | `/api/auth/me` | Current user |
 
-- **Inputs**: BP (systolic/diastolic), blood sugar, BMI, weight trends, symptoms
-- **Scoring**: Clinical threshold rules (e.g., BP ≥ 140/90 → HIGH)
-
-### Fetal Health Risk
-
-- **Inputs**: Cardiotocogram (CTG) features (baseline value, accelerations, decelerations, variability, and histogram patterns)
-- **Scoring**: LightGBM model trained using SMOTE (due to 9.4x class imbalance). Achieves highly accurate detection: 96.9% Accuracy, 0.93 Macro F1, and 0.99 AUC-ROC for detecting Pathological and Suspect outcomes vs Normal.
-
-### Auto-Escalation
-
-HIGH-risk scores automatically trigger clinical escalation to the assigned doctor with severity level and reason.
-
----
-
-## Environment Variables
-
-
-| Variable                      | Description                  | Default                    |
-| ----------------------------- | ---------------------------- | -------------------------- |
-| `DATABASE_URL`                | PostgreSQL connection string | required                   |
-| `MONGODB_URL`                 | MongoDB connection string    | required                   |
-| `REDIS_URL`                   | Redis connection string      | `redis://localhost:6379/0` |
-| `JWT_SECRET_KEY`              | Secret for JWT signing       | required                   |
-| `JWT_ALGORITHM`               | JWT algorithm                | `HS256`                    |
-| `ACCESS_TOKEN_EXPIRE_MINUTES` | Token expiry                 | `30`                       |
-| `CORS_ORIGINS`                | Allowed CORS origins         | `http://localhost:3000`    |
-
+Full detail: **Swagger** at `/docs`.
 
 ---
 
-## Safety & Ethics
+## Machine learning
 
-- **Never diagnoses** — only predicts risk likelihood (LOW / MEDIUM / HIGH)
-- **Disclaimer** displayed on every page with AI-generated content
-- **Crisis detection** with emergency helpline numbers
-- **GDPR compliance** — right to deletion, data export
-- **Doctor oversight** — clinical escalation pathway
-- **Explainable AI** — SHAP feature importance for transparency
+- **Authoritative reference:** **[`docs/ML_MODELS_AND_DATASETS.md`](./docs/ML_MODELS_AND_DATASETS.md)** — every model file, training script, **dataset source**, **evaluation metrics printed during training** (CV, test accuracy, classification reports, MAE/R²), and runtime usage.
+- **Default artifact directory:** `backend/app/ml/models/` (configurable via `ML_MODEL_DIR`).
+- **Core risk training:** `python -m app.ml.train_risk_models` (from `backend/` with venv active).
+- **Operational / v2 models (synthetic):** `python -m app.ml.train_v2_models`.
+- **v2 on real/sourced data:** `python -m app.ml.train_v2_real_data` when CSVs exist under `ml/datasets/` (see doc §5 for paths).
+- **Notebooks:** `ml/notebooks/` — mental, physical, fetal pipelines; artifacts copied to `backend/app/ml/models/`.
+
+**Metrics:** The repo does not commit a frozen `metrics.json` for every run. After training, capture console output (e.g. `tee ml_training_report.txt`) for model cards. Synthetic runs produce **illustrative** accuracy/F1; external CSV runs reflect those files’ domains.
+
+The app starts even if some `.joblib` files are missing; features that depend on them may degrade gracefully. Check startup logs for `ML Model [name]` lines.
 
 ---
 
-## Roadmap
+## Risk scoring (summary)
 
-- **v1.5**: Replace rule-based models with trained XGBoost/LightGBM on synthetic data (SDV)
-- **v1.5**: DistilBERT + VADER + GoEmotions for NLP pipeline
-- **v2.0**: LLM integration (GPT-4 / Gemini-Pro) for companion
-- **v2.0**: Real-time notifications (WebSocket)
-- **v2.0**: Mobile app (React Native)
-- **v2.5**: Wearable device integration (smartwatch vitals)
-- **v2.5**: Multi-language support
-- **v3.0**: LSTM time-series risk forecasting
+- **Mental:** Screeners, mood, sleep, optional journal sentiment; tiered LOW / MEDIUM / HIGH with crisis keyword handling.
+- **Physical:** Thresholds on BP, glucose, BMI, symptoms, trends.
+- **Fetal:** CTG / growth-related signals via trained models where available.
+- **Escalation:** High-risk signals feed hospital and doctor escalation workflows (see PRD clinical flow).
+
+---
+
+## Environment variables (reference)
+
+Align with `backend/app/core/settings` and `.env.example`:
+
+| Variable | Description |
+| -------- | ----------- |
+| `DATABASE_URL` | Async PostgreSQL URL (`postgresql+asyncpg://…`) |
+| `DATABASE_URL_SYNC` | Sync URL for scripts if needed |
+| `MONGODB_URL` | MongoDB connection |
+| `MONGODB_DB_NAME` | Database name |
+| `REDIS_URL` | Redis |
+| `SECRET_KEY` | JWT signing secret |
+| `ALGORITHM` | JWT algorithm (default `HS256`) |
+| `ACCESS_TOKEN_EXPIRE_MINUTES` | Access token TTL |
+| `CORS_ORIGINS` | Allowed browser origins (list in config) |
+| `ML_MODEL_DIR` | Relative model directory |
+| `RISK_CONFIDENCE_THRESHOLD` | Risk decision threshold |
+| `ESCALATION_*` | Escalation timers |
+
+Optional: `OPENAI_API_KEY`, `GEMINI_API_KEY`, `GROQ_API_KEY`, `GOOGLE_MAPS_API_KEY`, SMTP fields.
+
+---
+
+## Safety and ethics
+
+- Does not diagnose; surfaces **risk likelihood** and educational context.
+- Disclaimers on AI surfaces; crisis / emergency pathways in product copy.
+- Doctor and hospital workflows are part of oversight, not a replacement for local protocol.
+- Use **BACKEND_GUIDE** and **prd** for compliance and data-handling expectations.
+
+---
+
+## Roadmap (high level)
+
+Shipped in tree: multi-role web app, hospital and platform admin APIs, doctor/patient appointment flows, ML training scripts (risk + v2 operational), telemedicine and MLOps routes, event/ingestion hooks.
+
+Ongoing / future: deeper wearable integration, mobile clients, real-time channels, broader localization, federated or privacy-preserving training — see `prd.md` roadmap table.
 
 ---
 
 ## License
 
-This project is for educational and research purposes. Not approved for clinical use.
+Educational and research use. **Not** approved for clinical deployment without appropriate regulatory review.
 
 ---
 
-Built for mothers everywhere
+*Built for mothers everywhere.*

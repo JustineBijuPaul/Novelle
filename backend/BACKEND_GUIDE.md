@@ -6,6 +6,7 @@
 
 ## Table of Contents
 
+0. [Multi-role API surface](#0-multi-role-api-surface-quick-reference) *(quick reference)*
 1. [Prerequisites](#1-prerequisites)
 2. [Environment Setup](#2-environment-setup)
 3. [Database Setup](#3-database-setup)
@@ -25,6 +26,39 @@
 17. [Testing the Full Pipeline](#17-testing-the-full-pipeline)
 18. [Docker Deployment](#18-docker-deployment)
 19. [Monitoring & Maintenance](#19-monitoring--maintenance)
+
+---
+
+## 0. Multi-role API surface (quick reference)
+
+All HTTP routes are served by `backend/main.py`. Most modules are mounted under **`/api`**.
+
+| Module (`app/api/routes/`) | URL prefix | Typical UI consumer |
+| --------------------------- | ---------- | ------------------- |
+| `auth`, `profile`, `health`, `mental_health`, `risk`, `features` | `/api/...` | Patient + shared |
+| `patient` | `/api/patient/...` | Patient portal pages |
+| `doctor` | `/api/doctor/...` | Doctor portal |
+| `admin` | `/api/admin/...` | Legacy/aux admin routes |
+| `hospital_admin` | `/api/hospital-admin/...` | Hospital manager dashboard |
+| `platform_admin` | `/api/platform-admin/...` | Platform admin dashboard |
+| `ingestion` | `/api/ingestion/...` | Ingestion pipeline |
+| `telemedicine` | `/api/telemedicine/...` | Telehealth |
+| `mlops` | `/api/mlops/...` | ML pipeline operations |
+| `compliance` | `/api/compliance/...` | Compliance helpers |
+
+**Docs:** with the backend running, open `http://localhost:8000/docs` (Swagger UI).
+
+**Training entrypoints (run from `backend/` with venv active):**
+
+| Command | Purpose |
+| ------- | ------- |
+| `python -m app.ml.train_risk_models` | Core mental / physical / fetal risk artifacts |
+| `python -m app.ml.train_v2_models` | Optional operational models (no-show, GDM, engagement, escalation ranker, BP forecaster, etc.) on synthetic data |
+| `python -m app.ml.train_v2_real_data` | v2-style training when real/sourced datasets are configured |
+
+Artifacts are written under **`backend/app/ml/models/`** unless `ML_MODEL_DIR` in `.env` overrides.
+
+For a **full matrix of models, datasets, evaluation output, and runtime usage**, see **[`docs/ML_MODELS_AND_DATASETS.md`](./docs/ML_MODELS_AND_DATASETS.md)**.
 
 ---
 
