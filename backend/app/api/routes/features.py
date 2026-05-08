@@ -8,6 +8,7 @@ from datetime import datetime, timezone, date
 from math import radians, cos, sin, asin, sqrt
 from app.core.database import get_db, get_mongo_db
 from app.models.user import User
+from app.models.profile import PregnancyProfile
 from app.models.hospital import Hospital
 from app.models.reminder import Reminder
 from app.schemas.features import (
@@ -17,12 +18,11 @@ from app.schemas.features import (
 )
 from app.api.routes.auth import _current_user
 from app.services.nlp_service import NLPService
-from app.services.companion_ai import CompanionAI
+from app.services.companion_ai import companion
+from app.services.pregnancy_expert_ai import pregnancy_expert
 
 router = APIRouter(tags=["Features"])
 nlp = NLPService()
-companion = CompanionAI()
-
 
 # ═══════════════════════════════════════════════════
 #  JOURNAL
@@ -192,8 +192,17 @@ async def delete_letter(
 async def companion_chat(
     data: CompanionRequest,
     user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     mongo = get_mongo_db()
+
+    merged_ctx = dict(data.context) if data.context else {}
+    prof = (
+        await db.execute(select(PregnancyProfile).where(PregnancyProfile.user_id == user.id))
+    ).scalar_one_or_none()
+    if prof:
+        merged_ctx.setdefault("pregnancy_week", prof.pregnancy_week)
+        merged_ctx.setdefault("trimester", prof.trimester)
 
     # Get chat history for context
     cursor = mongo.chat_history.find(
@@ -203,10 +212,51 @@ async def companion_chat(
     async for doc in cursor:
         history.append(doc)
 
-    response = companion.generate_response(data.message, user, history, data.context)
+    response = companion.generate_response(data.message, user, history, merged_ctx)
 
     # Save to chat history
     await mongo.chat_history.insert_one({
+        "user_id": user.id,
+        "user_message": data.message,
+        "ai_response": response["response"],
+        "crisis_flag": response.get("crisis_flag", "SAFE"),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    })
+
+    return CompanionResponse(**response)
+
+
+@router.post("/companion/expert-chat", response_model=CompanionResponse)
+async def companion_expert_chat(
+    data: CompanionRequest,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    **Pregnancy Expert** mode: structured educational answers via hosted LLM (Gemini → Groq).
+    Not a separate trained model—see `docs/PREGNANCY_EXPERT_AND_DATASETS.md`.
+    """
+    crisis = nlp.detect_crisis(data.message)
+    if crisis == "URGENT" or companion._is_hard_crisis(data.message):
+        return CompanionResponse(**companion._crisis_response())
+
+    mongo = get_mongo_db()
+    merged_ctx = dict(data.context) if data.context else {}
+    prof = (
+        await db.execute(select(PregnancyProfile).where(PregnancyProfile.user_id == user.id))
+    ).scalar_one_or_none()
+    if prof:
+        merged_ctx.setdefault("pregnancy_week", prof.pregnancy_week)
+        merged_ctx.setdefault("trimester", prof.trimester)
+
+    cursor = mongo.expert_chat_history.find({"user_id": user.id}).sort("timestamp", -1).limit(8)
+    history = []
+    async for doc in cursor:
+        history.append(doc)
+
+    response = pregnancy_expert.generate_response(data.message, user, history, merged_ctx)
+
+    await mongo.expert_chat_history.insert_one({
         "user_id": user.id,
         "user_message": data.message,
         "ai_response": response["response"],

@@ -101,6 +101,10 @@ export const companionService = {
   chat: (data: string | { message: string; context?: Record<string, unknown> }) =>
     api.post<CompanionResponse>('/companion/chat', typeof data === 'string' ? { message: data } : data),
 
+  /** Structured “patient education” answers (Gemini/Groq expert prompt). See `docs/PREGNANCY_EXPERT_AND_DATASETS.md`. */
+  expertChat: (data: string | { message: string; context?: Record<string, unknown> }) =>
+    api.post<CompanionResponse>('/companion/expert-chat', typeof data === 'string' ? { message: data } : data),
+
   getHistory: (limit = 50) =>
     api.get<{ messages: { user_message: string; ai_response: string; timestamp: string }[] }>(
       `/companion/history?limit=${limit}`
@@ -327,6 +331,15 @@ export const patientService = {
   listSymptoms: (limit?: number) => api.get<any>(`/patient/symptoms${limit ? `?limit=${limit}` : ''}`),
   // Baby Growth
   getBabyGrowth: (week?: number) => api.get<any>(`/patient/baby-growth${week ? `?week=${week}` : ''}`),
+  getWellnessHub: () => api.get<any>('/patient/wellness/hub'),
+};
+
+export const aiService = {
+  chat: (message: string) => api.post<any>('/ai/chat', { message }),
+  getStatus: () => api.get<any>('/ai/status'),
+};
+
+export const patientServiceAppointments = {
   // Appointments
   listAppointments: () => api.get<any[]>('/patient/appointments'),
   createAppointment: (data: any) => api.post<any>('/patient/appointments', data),

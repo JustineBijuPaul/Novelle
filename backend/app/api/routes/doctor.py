@@ -39,6 +39,26 @@ async def _get_doctor_identity_ids(db: AsyncSession, user: User) -> list[int]:
     return list(dict.fromkeys(identity_ids))
 
 
+def _risk_indicator_elevated(val, float_threshold: float = 0.5) -> bool:
+    """True if RiskScore sub-field suggests follow-up (LOW/MEDIUM/HIGH strings or legacy numeric)."""
+    if val is None:
+        return False
+    if isinstance(val, (int, float)):
+        try:
+            return float(val) > float_threshold
+        except (TypeError, ValueError):
+            return False
+    s = str(val).strip().upper()
+    if s in ("HIGH", "MEDIUM"):
+        return True
+    if s == "LOW" or s == "":
+        return False
+    try:
+        return float(s) > float_threshold
+    except (TypeError, ValueError):
+        return False
+
+
 @router.get("/dashboard")
 async def get_dashboard(
     user: User = Depends(_current_user),
@@ -789,15 +809,15 @@ async def get_ai_copilot_summary(
             )
             risk_distribution[max_level] = risk_distribution.get(max_level, 0) + 1
 
-            if risk.hypertension_risk and risk.hypertension_risk > 0.6:
+            if _risk_indicator_elevated(risk.hypertension_risk, 0.6):
                 top_concerns["Hypertension"] = top_concerns.get("Hypertension", 0) + 1
-            if risk.diabetes_risk and risk.diabetes_risk > 0.6:
+            if _risk_indicator_elevated(risk.diabetes_risk, 0.6):
                 top_concerns["Gestational Diabetes"] = top_concerns.get("Gestational Diabetes", 0) + 1
-            if risk.depression_risk and risk.depression_risk > 0.6:
+            if _risk_indicator_elevated(risk.depression_risk, 0.6):
                 top_concerns["Depression"] = top_concerns.get("Depression", 0) + 1
-            if risk.anemia_risk and risk.anemia_risk > 0.5:
+            if _risk_indicator_elevated(risk.anemia_risk, 0.5):
                 top_concerns["Anemia"] = top_concerns.get("Anemia", 0) + 1
-            if risk.preterm_risk and risk.preterm_risk > 0.5:
+            if _risk_indicator_elevated(risk.preterm_risk, 0.5):
                 top_concerns["Preterm Risk"] = top_concerns.get("Preterm Risk", 0) + 1
 
             if max_level == "HIGH":

@@ -32,7 +32,7 @@ Novelle is a full-stack platform for maternal health. It combines **patient** se
 | -------- | ------- |
 | **README.md** (this file) | Quick orientation, setup, routes, environment |
 | [BACKEND_GUIDE.md](./BACKEND_GUIDE.md) | Databases, datasets, training pipelines, deployment detail |
-| [docs/ML_MODELS_AND_DATASETS.md](./docs/ML_MODELS_AND_DATASETS.md) | **Full ML inventory:** models, artifacts, training metrics methodology, datasets & sources |
+| [docs/PREGNANCY_EXPERT_AND_DATASETS.md](./docs/PREGNANCY_EXPERT_AND_DATASETS.md) | **Pregnancy Expert** LLM mode (`/api/companion/expert-chat`) + dataset links for research & training |
 | [prd.md](./prd.md) | Product requirements and vision |
 | [ml/notebooks/README.md](./ml/notebooks/README.md) | Jupyter training workflow for core risk models |
 

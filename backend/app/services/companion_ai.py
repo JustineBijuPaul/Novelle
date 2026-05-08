@@ -12,21 +12,19 @@ from app.core.config import settings
 logger = logging.getLogger(__name__)
 nlp = NLPService()
 
-SYSTEM_PROMPT = """You are Novelle Companion, a warm, empathetic AI pregnancy support assistant.
+SYSTEM_PROMPT = """You are Novelle Maternal Intelligence, powered by Mistral-7B-Instruct-v0.3.
+You are a specialized clinical-grade AI assistant for pregnancy and postpartum care.
+Your goal is to provide safe, data-driven, and empathetic guidance based on the user's health logs and risk assessments.
 
 CORE RULES:
-1. You provide emotional support, general pregnancy wellness information, and companionship.
-2. You are NOT a doctor. NEVER diagnose conditions, prescribe medication, or give specific medical advice.
-3. For any medical concern, always recommend consulting their healthcare provider.
-4. Be warm, compassionate, and validating. Use a conversational, supportive tone.
-5. If the user seems distressed or mentions self-harm, acknowledge their pain and provide crisis helpline numbers.
-6. Keep responses concise (2-4 sentences) unless the user asks for detailed information.
-7. You can discuss general pregnancy topics: nutrition, exercise, sleep, emotional wellbeing, baby development milestones, common discomforts, and partner/family dynamics.
-8. If asked non-pregnancy topics, gently redirect while still being friendly. You may answer briefly, but steer back to how you can help with their journey.
-9. Respect cultural sensitivity — users may be from India or other regions.
-10. Use occasional emojis sparingly (1-2 per message max) to keep the tone warm.
-
-CONTEXT: The user is a pregnant or postpartum individual using the Novelle maternal health platform."""
+1. **Answer the user's actual question first.** Use clinical-grade reasoning while remaining accessible.
+2. You provide emotional support, general pregnancy wellness information, and companionship.
+3. You are NOT a doctor. For severe symptoms, prioritize safety and tell them to contact their clinician.
+4. For Red flags (heavy bleeding, severe pain, high fever, severe headache with vision changes, sudden swelling, reduced fetal movement), tell them to seek urgent in-person care immediately.
+5. Substance over vague comfort. Be professional yet warm.
+6. If the user seems distressed, provide crisis helpline numbers.
+7. Cover nutrition, exercise, sleep, stress, and fetal development.
+"""
 
 TOPIC_RESPONSES = {
     "greeting": [
@@ -48,6 +46,14 @@ TOPIC_RESPONSES = {
         "Feeling anxious during pregnancy is very common. Have you tried some gentle breathing exercises? They can really help calm your mind.",
         "Anxiety can feel overwhelming, but you're already doing something positive by talking about it. Would you like some relaxation tips?",
         "It's natural to worry. If the anxiety feels persistent, consider discussing it with your doctor — they can help.",
+    ],
+    "stress_relief": [
+        "To ease stress in pregnancy, many people combine: slow breathing (inhale 4, exhale 6), a short daily walk, regular sleep, limiting doom-scrolling, and talking to someone they trust. If stress feels constant or affects eating/sleep, mention it at your next prenatal visit — your team can help.",
+        "A few practical ideas: gentle movement (walking, prenatal yoga if your clinician says it's OK), box breathing, breaking worries into small 'today only' steps, and asking your partner or a friend for concrete help. If you're overwhelmed most days, your clinician can screen for anxiety or depression — support makes a real difference.",
+    ],
+    "body_image": [
+        "Many people feel strange about their changing body in pregnancy — pride, worry, or feeling 'not like yourself' is more common than people say. You're not vain for noticing. If thoughts feel obsessive or hard to manage, talking with your midwife, OB, or a counselor who works with perinatal mental health is a strong step.",
+        "Pregnancy shifts hormones, weight, and skin — feeling self-focused or uncomfortable doesn't mean you're failing. Be gentle with yourself. If the feelings are intense or constant, professional support (your clinician or a therapist) can really help.",
     ],
     "pain": [
         "I'm sorry you're experiencing pain. If it's severe or persistent, please contact your healthcare provider right away.",
@@ -81,7 +87,20 @@ TOPIC_RESPONSES = {
 
 TOPIC_KEYWORDS = {
     "greeting": ["hello", "hi", "hey", "good morning", "good evening", "good afternoon", "howdy"],
-    "anxiety": ["anxious", "worried", "panic", "nervous", "scared", "fear", "stressed", "stress", "overwhelm", "can't stop thinking"],
+    # Richer coping content — match before generic "anxiety" if user asks about stress reduction
+    "stress_relief": [
+        "less stress", "reduce stress", "manage stress", "cope with stress", "stress during pregnancy",
+        "stress in pregnancy", "get in less stress", "deal with stress", "stress relief", "lower stress",
+    ],
+    "body_image": [
+        "self obsessed", "self-obsessed", "obsessed with myself", "feeling obsessed", "i'm obsessed", "im obsessed",
+        "hate my body", "disgusted with my body",
+        "body image", "feel fat", "ugly", "don't recognize myself", "self-conscious", "embarrassed by my body",
+    ],
+    "anxiety": [
+        "anxious", "worried", "panic", "nervous", "scared", "fear", "stressed", "stress",
+        "overwhelm", "can't stop thinking", "calm down", "overwhelmed", "tense",
+    ],
     "pain": ["pain", "hurting", "ache", "cramp", "cramps", "contraction", "contractions", "bleeding", "spotting"],
     "baby_development": ["baby", "fetus", "kick", "kicks", "movement", "growth", "development", "ultrasound", "scan", "heartbeat"],
     "sleep": ["sleep", "insomnia", "tired", "rest", "fatigue", "exhausted", "can't sleep", "restless"],
@@ -155,14 +174,17 @@ class CompanionAI:
 
     # ── public entry ──────────────────────────────────
 
-    def generate_response(self, message: str, user, history: list = None, context: dict = None) -> dict:
-        crisis_flag = nlp.detect_crisis(message)
-        if self._is_hard_crisis(message):
+    def generate_response(self, message: str, user, history: list | None = None, context: dict | None = None) -> dict:
+        # Use original message for rule-based logic to avoid internal prompt confusion
+        orig_msg = context.get("original_message", message) if context else message
+        crisis_flag = nlp.detect_crisis(orig_msg)
+        
+        if self._is_hard_crisis(orig_msg):
             crisis_flag = "URGENT"
         if crisis_flag == "URGENT":
             return self._crisis_response()
 
-        sentiment_score, sentiment_label = nlp.analyze_sentiment(message)
+        sentiment_score, sentiment_label = nlp.analyze_sentiment(orig_msg)
 
         user_context = self._build_context(user, context)
         chat_messages = self._build_messages(message, history, user_context)
@@ -170,7 +192,7 @@ class CompanionAI:
         response_text = (
             self._try_gemini(chat_messages)
             or self._try_groq(chat_messages)
-            or self._rule_based_response(message, sentiment_label, context)
+            or self._rule_based_response(orig_msg, sentiment_label, context)
         )
 
         suggested_action = None
@@ -245,8 +267,8 @@ class CompanionAI:
         system_text = next((m["content"] for m in messages if m["role"] == "system"), "")
         config = types.GenerateContentConfig(
             system_instruction=system_text,
-            max_output_tokens=300,
-            temperature=0.7,
+            max_output_tokens=512,
+            temperature=0.55,
         )
 
         for model_name in ["gemini-2.0-flash-lite", "gemini-2.0-flash"]:
@@ -265,7 +287,7 @@ class CompanionAI:
                 logger.warning(f"Gemini {model_name}: {e}")
                 continue
 
-        self._gemini_cooldown_until = time.time() + 300
+        self._gemini_cooldown_until = int(time.time()) + 300
         logger.info("All Gemini models exhausted — cooldown 5 min")
         return None
 
@@ -276,13 +298,13 @@ class CompanionAI:
         if not client:
             return None
 
-        for model in ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
+        for model in ["mistral-7b-instruct-v0.3", "mixtral-8x7b-32768", "llama-3.3-70b-versatile", "llama-3.1-8b-instant"]:
             try:
                 resp = client.chat.completions.create(
                     model=model,
                     messages=messages,
-                    max_tokens=300,
-                    temperature=0.7,
+                    max_tokens=512,
+                    temperature=0.55,
                 )
                 text = resp.choices[0].message.content
                 if text:
@@ -296,28 +318,104 @@ class CompanionAI:
                 logger.warning(f"Groq {model}: {e}")
                 continue
 
-        self._groq_cooldown_until = time.time() + 60
+        self._groq_cooldown_until = int(time.time()) + 60
         logger.info("All Groq models failed — cooldown 1 min")
         return None
 
+    # ── Question / topic helpers (rule-based fallback) ─
+
+    _PREGNANCY_HINTS = (
+        "pregnan", "pregnancy", "pregancy", "pregency", "pregant", "pregnent", "pregnacy",
+        "prenatal", "postpartum", "trimester", "baby", "babies", "fetus", "fetal", "kick",
+        "ultrasound", "due date", "expecting", "gestation", "obgyn", "ob-gyn", "midwife",
+        "labor", "labour", "delivery", "birth", "morning sickness", "miscarriage", "c-section",
+        "cesarean",
+    )
+
+    _PRECAUTION_HINTS = (
+        "cautious", "caution", "careful", "watch out", "look out", "avoid", "should i avoid",
+        "danger", "risk", "safe", "safety", "warning", "what should", "things to know",
+        "be aware", "red flag", "when to call", "when to worry", "causious", "cautios",
+        "worried about", "scared something", "harm my baby",
+    )
+
+    def _is_question_message(self, message: str) -> bool:
+        ml = message.lower().strip()
+        if "?" in ml:
+            return True
+        starters = (
+            "what ", "how ", "when ", "where ", "why ", "which ", "who ",
+            "can ", "should ", "is ", "are ", "do ", "does ", "will ", "could ", "would ",
+        )
+        return any(ml.startswith(s) for s in starters)
+
+    def _is_pregnancy_related(self, message: str) -> bool:
+        ml = message.lower()
+        if any(t in ml for t in self._PREGNANCY_HINTS):
+            return True
+        if "preg" in ml:
+            return True
+        return False
+
+    def _wants_precautions_or_safety_info(self, message: str) -> bool:
+        ml = message.lower()
+        return any(h in ml for h in self._PRECAUTION_HINTS)
+
+    def _should_answer_precautions(self, message: str) -> bool:
+        if not self._is_question_message(message):
+            return False
+        ml = message.lower()
+        if not (self._is_pregnancy_related(message) or "preg" in ml):
+            return False
+        return self._wants_precautions_or_safety_info(ml)
+
+    def _precautions_education_response(self, context: dict | None) -> str:
+        context = context or {}
+        week = context.get("pregnancy_week")
+        trim = context.get("trimester")
+        ctx_line = ""
+        if week is not None:
+            tstr = str(trim).replace("_", " ") if trim else "your current stage"
+            ctx_line = f" At about week {week} ({tstr}), keeping up with prenatal visits matters."
+
+        return (
+            "Here are general things many people are careful about in pregnancy — your clinician should personalize this for you:\n\n"
+            "• Prenatal visits: go to scheduled checkups and report new or worsening symptoms.\n"
+            "• Food safety: avoid unpasteurized dairy/juice, undercooked meat or eggs, and high-mercury fish; wash produce.\n"
+            "• Substances: avoid alcohol, smoking, vaping, and recreational drugs. Check every prescription, OTC med, and supplement with your care team.\n"
+            "• Caffeine: most people moderate intake — ask your provider what's right for you.\n"
+            "• Activity & rest: many stay active with walking or prenatal-approved exercise unless told otherwise; prioritize sleep when you can.\n\n"
+            "Seek urgent in-person care for heavy bleeding, severe or worsening belly pain, high fever, trouble breathing, severe headache with vision changes, "
+            "sudden swelling, signs of preterm labor, or clearly reduced baby movement (especially after about 28 weeks).\n\n"
+            f"I'm glad you asked.{ctx_line} For guidance matched to your history, your OB, midwife, or GP is the best source."
+        )
+
     # ── Rule-based fallback ───────────────────────────
 
-    def _rule_based_response(self, message: str, sentiment_label: str, context: dict = None) -> str:
-        topic = self._detect_topic(message)
+    def _rule_based_response(self, message: str, sentiment_label: str, context: dict | None = None) -> str:
+        context = context or {}
 
-        if topic in TOPIC_RESPONSES:
-            response_text = random.choice(TOPIC_RESPONSES[topic])
-        elif sentiment_label == "negative":
-            response_text = random.choice(TOPIC_RESPONSES["negative"])
-        elif sentiment_label == "positive":
-            response_text = random.choice(TOPIC_RESPONSES["positive"])
+        if self._should_answer_precautions(message):
+            response_text = self._precautions_education_response(context)
         else:
-            response_text = self._contextual_default(message)
+            topic = self._detect_topic(message)
+
+            if topic in TOPIC_RESPONSES:
+                response_text = random.choice(TOPIC_RESPONSES[topic])
+            elif sentiment_label == "negative" and not (
+                self._is_question_message(message)
+                and (self._is_pregnancy_related(message) or self._wants_precautions_or_safety_info(message.lower()))
+            ):
+                response_text = random.choice(TOPIC_RESPONSES["negative"])
+            elif sentiment_label == "positive":
+                response_text = random.choice(TOPIC_RESPONSES["positive"])
+            else:
+                response_text = self._contextual_default(message)
 
         if context and context.get("pregnancy_week"):
             week = context["pregnancy_week"]
             if week >= 28:
-                response_text += "\n\n💡 *Tip: At your stage, remember to count your baby's kicks daily!*"
+                response_text += "\n\n💡 Tip: At your stage, many care teams suggest daily kick counts — ask how they'd like you to track movement."
 
         return response_text
 
@@ -335,10 +433,10 @@ class CompanionAI:
 
         if is_question:
             pregnancy_terms = [
-                "pregnan", "baby", "trimester", "birth", "labor", "deliver",
+                "pregnan", "preg", "pregency", "baby", "trimester", "birth", "labor", "deliver", "labour",
                 "contraction", "prenatal", "postnatal", "breastfeed", "doctor",
                 "midwife", "ultrasound", "kick", "due date", "morning sickness",
-                "weight", "vitamin", "iron", "folate", "exercise", "diet",
+                "weight", "vitamin", "iron", "folate", "exercise", "diet", "expecting", "stage",
             ]
             if any(term in msg_lower for term in pregnancy_terms):
                 return random.choice([
@@ -353,10 +451,11 @@ class CompanionAI:
             ])
 
         return random.choice([
-            "Thank you for sharing that with me. How are you feeling about things overall?",
-            "I appreciate you telling me that. Is there anything specific about your pregnancy journey I can help with today?",
-            "Thanks for letting me know. I'm always here to chat whenever you need support. How has your week been going?",
-            "I hear you! Remember, I'm here to support you through this journey. What's been on your mind lately?",
+            "I'm here for you! How has your day been so far?",
+            "Thank you for sharing that. Is there anything specific on your mind regarding your pregnancy today?",
+            "I appreciate you telling me that. Remember, I'm always here to chat whenever you need support.",
+            "I hear you! What's been the most interesting part of your journey this week?",
+            "Thanks for letting me know. How are you feeling physically and emotionally today?",
         ])
 
 

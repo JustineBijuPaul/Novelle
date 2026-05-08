@@ -1,7 +1,8 @@
 import { useState, useRef, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { MessageCircle, Send, AlertTriangle, Bot, User, Heart, Lightbulb } from 'lucide-react';
-import { companionService } from '../services/endpoints';
+import { aiService, profileService } from '../services/endpoints';
+import { useAppStore } from '../stores/appStore';
 
 interface Message {
   id: string;
@@ -35,6 +36,25 @@ export default function CompanionPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
+  const profile = useAppStore((s) => s.profile);
+  const setProfile = useAppStore((s) => s.setProfile);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (profile) return;
+    (async () => {
+      try {
+        const res = await profileService.get();
+        if (!cancelled) setProfile(res.data);
+      } catch {
+        /* profile optional for chat; backend loads from DB */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [profile, setProfile]);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
@@ -55,12 +75,7 @@ export default function CompanionPage() {
     setSending(true);
 
     try {
-      const res = await companionService.chat({
-        message: msg,
-        context: {
-          recent_messages: messages.slice(-5).map(m => ({ role: m.role, content: m.content })),
-        },
-      });
+      const res = await aiService.chat(msg);
 
       const data = res.data;
       const assistantMessage: Message = {
@@ -140,10 +155,18 @@ export default function CompanionPage() {
                   <div className={`px-4 py-3 rounded-2xl text-sm leading-relaxed ${
                     msg.role === 'user'
                       ? 'bg-primary-500 text-white rounded-tr-sm'
-                      : 'bg-white text-gray-700 shadow-sm rounded-tl-sm border'
+                      : 'bg-white text-gray-700 shadow-sm rounded-tl-sm border whitespace-pre-wrap'
                   }`}>
                     {msg.content}
                   </div>
+                  {msg.role === 'assistant' && (
+                    <div className="mt-1 px-2 flex items-center gap-2">
+                      <span className="text-[10px] text-primary-400 font-medium flex items-center gap-1">
+                        <Bot className="w-2.5 h-2.5" />
+                        Clinical Intelligence Active
+                      </span>
+                    </div>
+                  )}
                   {msg.crisis_flag && msg.crisis_flag !== 'SAFE' && (
                     <div className="mt-1 px-2 py-1 bg-red-50 border border-red-200 rounded-lg">
                       <span className="text-xs text-red-600 flex items-center gap-1">

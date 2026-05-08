@@ -65,6 +65,13 @@ async def lifespan(app: FastAPI):
     asyncio.create_task(event_bus.start_event_loop())
     print("✅ Clinical Event Bus & Notification Engine online")
 
+    # Check RAG
+    from app.services.maternal_rag import maternal_rag
+    if maternal_rag.model:
+        print("✅ Maternal RAG Knowledge System online")
+    else:
+        print("⚠️  Maternal RAG in keyword-fallback mode (Model failed to load)")
+
     yield
 
     # Shutdown
@@ -106,6 +113,7 @@ from app.api.routes.telemedicine import router as telemedicine_router
 from app.api.routes.mlops import router as mlops_router
 from app.api.routes.compliance import router as compliance_router
 from app.api.routes.patient import router as patient_router
+from app.api.routes.ai import router as ai_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -122,6 +130,7 @@ app.include_router(telemedicine_router, prefix="/api/telemedicine")
 app.include_router(mlops_router, prefix="/api/mlops")
 app.include_router(compliance_router, prefix="/api/compliance")
 app.include_router(patient_router, prefix="/api")
+app.include_router(ai_router, prefix="/api")
 
 @app.get("/api/videos/list")
 async def list_available_videos():

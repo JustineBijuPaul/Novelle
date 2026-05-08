@@ -8,6 +8,9 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Body
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, desc, func, and_
 from typing import List, Optional
+import json
+import pandas as pd
+from sklearn.metrics.pairwise import cosine_similarity
 from datetime import datetime, timezone, timedelta
 from pydantic import BaseModel
 
@@ -394,9 +397,15 @@ async def get_ai_insights(
             except (ValueError, TypeError):
                 pass
 
-    if not recommendations:
-        trimester = user.profile.trimester if user.profile else 2
-        recommendations = _generate_engagement_based_recommendations(user, db, recent_health, trimester)
+    from app.services.maternal_ai_platform import maternal_ai
+    ai_recommendations = await maternal_ai.get_personalized_recommendations(user.id, db)
+    
+    if ai_recommendations:
+        recommendations = ai_recommendations
+    else:
+        if not recommendations:
+            trimester = user.profile.trimester if user.profile else 2
+            recommendations = _generate_engagement_based_recommendations(user, db, recent_health, trimester)
 
     wellness_score = _compute_wellness_score(user, recent_health, latest_risk)
 
@@ -883,14 +892,12 @@ def _get_personalized_recommendations(
     engine_data: dict,
 ) -> dict:
     """Query the TF-IDF recommendation engine for personalized content."""
-    from sklearn.metrics.pairwise import cosine_similarity
 
     vectorizer = engine_data["vectorizer"]
     tfidf_matrix = engine_data.get("tfidf_matrix") or engine_data.get("item_vectors")
     catalog_raw = engine_data["catalog"]
 
     if isinstance(catalog_raw, list):
-        import pandas as pd
         catalog = pd.DataFrame(catalog_raw)
     else:
         catalog = catalog_raw
