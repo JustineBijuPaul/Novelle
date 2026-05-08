@@ -536,7 +536,7 @@ async def list_doctor_appointments(
             )
         else:
             query = query.where(Appointment.status == status)
-    query = query.order_by(desc(Appointment.appointment_date))
+    query = query.order_by(desc(Appointment.appointment_date), desc(Appointment.id))
     result = await db.execute(query)
     appointments = result.scalars().all()
 

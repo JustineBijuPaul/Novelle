@@ -498,7 +498,14 @@ function AppointmentsView() {
     try {
       setError(null);
       const res = await doctorService.listAppointments(tab === 'all' ? undefined : tab);
-      setAppointments(res.data || []);
+      const list = Array.isArray(res.data) ? res.data : [];
+      const sorted = [...list].sort((a, b) => {
+        const ta = new Date(a.date || a.appointment_date || 0).getTime();
+        const tb = new Date(b.date || b.appointment_date || 0).getTime();
+        if (tb !== ta) return tb - ta;
+        return (b.id ?? 0) - (a.id ?? 0);
+      });
+      setAppointments(sorted);
     } catch (err: any) {
       const detail = err?.response?.data?.detail;
       setError(typeof detail === 'string' ? detail : 'Unable to load appointments. Please try again.');
