@@ -16,7 +16,8 @@ from app.models.resource import HospitalResource
 from app.models.communication import HospitalAnnouncement, InternalMessage
 from app.api.routes.auth import _current_user
 from pydantic import BaseModel
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
+from app.services.hospital_admin.ops import hospital_ops_service
 
 router = APIRouter(tags=["Hospital Admin"])
 
@@ -233,10 +234,16 @@ async def schedule_hospital_appointment(
     
     # Parse date
     date_str = data.get("appointment_date")
-    if 'Z' in date_str:
-        date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-    else:
-        date_obj = datetime.fromisoformat(date_str)
+    if not date_str:
+        raise HTTPException(status_code=400, detail="appointment_date is required")
+        
+    try:
+        if isinstance(date_str, str) and 'Z' in date_str:
+            date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
+        else:
+            date_obj = datetime.fromisoformat(str(date_str))
+    except (ValueError, TypeError):
+        raise HTTPException(status_code=400, detail="Invalid date format. Expected ISO 8601.")
 
     new_appo = Appointment(
         patient_id=data.get("patient_id"),
@@ -769,4 +776,60 @@ async def get_system_audit_logs(
         {"id": 1, "timestamp": datetime.now(timezone.utc).isoformat(), "user": "Dr. Sarah Admin", "action": "UPDATE_AI_THRESHOLD", "target": "Risk Engine", "ip": "192.168.1.104"},
         {"id": 2, "timestamp": (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(), "user": "System", "action": "BACKUP_SUCCESS", "target": "Database", "ip": "Internal"},
         {"id": 3, "timestamp": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "user": "Admin Jane", "action": "LOGIN_SUCCESS", "target": "Security", "ip": "45.12.33.11"},
+    ]
+@router.get("/operations/workload")
+async def get_workload_matrix(
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+    return await hospital_ops_service.get_doctor_workload_matrix(db, h_id)
+
+@router.get("/operations/departments")
+async def get_departmental_load(
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+    return await hospital_ops_service.get_departmental_load(db, h_id)
+
+@router.get("/operations/compliance")
+async def get_compliance_report(
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+    return await hospital_ops_service.get_compliance_sla_report(db, h_id)
+
+@router.post("/escalations/{escalation_id}/auto-route")
+async def route_escalation(
+    escalation_id: int,
+    user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db)
+):
+    _require_hospital_admin(user)
+    res = await db.execute(select(Escalation).where(Escalation.id == escalation_id))
+    esc = res.scalar_one_or_none()
+    if not esc:
+        raise HTTPException(status_code=404, detail="Escalation not found")
+        
+    doc_id = await hospital_ops_service.auto_route_escalation(db, esc)
+    if not doc_id:
+        return {"status": "FAILED", "message": "No available doctors found for routing"}
+    
+    return {"status": "ROUTED", "doctor_id": doc_id}
+
+@router.get("/departments")
+async def list_departments(
+    user: User = Depends(_current_user)
+):
+    _require_hospital_admin(user)
+    return [
+        {"id": "MAT", "name": "Maternity", "head": "Dr. Sarah OB", "staff_count": 12},
+        {"id": "NICU", "name": "Neonatal ICU", "head": "Dr. James P.", "staff_count": 8},
+        {"id": "MNH", "name": "Mental Health", "head": "Dr. Elena M.", "staff_count": 5},
+        {"id": "CRD", "name": "Cardiology (Maternal)", "head": "Dr. Robert C.", "staff_count": 4}
     ]

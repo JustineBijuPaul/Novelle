@@ -47,6 +47,24 @@ async def lifespan(app: FastAPI):
     print(f"📡 API ready at http://0.0.0.0:8000")
     print(f"📖 Docs at http://0.0.0.0:8000/docs")
 
+    # Start Ingestion Worker
+    import asyncio
+    from app.services.ingestion.processor import ingestion_processor
+    asyncio.create_task(ingestion_processor.process_queue_worker())
+    print("✅ Ingestion Background Worker started")
+
+    # Start Event Bus & Notification Engine
+    from app.services.events.bus import event_bus
+    from app.services.notifications.dispatcher import notification_dispatcher
+    
+    # Register Subscribers
+    event_bus.subscribe("RISK_ALERT", notification_dispatcher.handle_clinical_event)
+    event_bus.subscribe("EMERGENCY_ESCALATION", notification_dispatcher.handle_clinical_event)
+    event_bus.subscribe("MISSED_MEDICATION", notification_dispatcher.handle_clinical_event)
+    
+    asyncio.create_task(event_bus.start_event_loop())
+    print("✅ Clinical Event Bus & Notification Engine online")
+
     yield
 
     # Shutdown
@@ -83,6 +101,10 @@ from app.api.routes.doctor import router as doctor_router
 from app.api.routes.admin import router as admin_router
 from app.api.routes.hospital_admin import router as hospital_admin_router
 from app.api.routes.platform_admin import router as platform_admin_router
+from app.api.routes.ingestion import router as ingestion_router
+from app.api.routes.telemedicine import router as telemedicine_router
+from app.api.routes.mlops import router as mlops_router
+from app.api.routes.compliance import router as compliance_router
 
 app.include_router(auth_router, prefix="/api")
 app.include_router(profile_router, prefix="/api")
@@ -94,6 +116,10 @@ app.include_router(doctor_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
 app.include_router(hospital_admin_router, prefix="/api/hospital-admin")
 app.include_router(platform_admin_router, prefix="/api/platform-admin")
+app.include_router(ingestion_router, prefix="/api/ingestion")
+app.include_router(telemedicine_router, prefix="/api/telemedicine")
+app.include_router(mlops_router, prefix="/api/mlops")
+app.include_router(compliance_router, prefix="/api/compliance")
 
 @app.get("/api/videos/list")
 async def list_available_videos():
