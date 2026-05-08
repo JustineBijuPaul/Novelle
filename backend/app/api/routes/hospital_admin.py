@@ -224,34 +224,25 @@ async def list_hospital_appointments(
         })
     return appointments
 
+from app.schemas.clinical import AppointmentCreate
+
 @router.post("/appointments")
 async def schedule_hospital_appointment(
-    data: dict,
+    payload: AppointmentCreate,
+    patient_id: int,
+    doctor_id: int,
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
     
-    # Parse date
-    date_str = data.get("appointment_date")
-    if not date_str:
-        raise HTTPException(status_code=400, detail="appointment_date is required")
-        
-    try:
-        if isinstance(date_str, str) and 'Z' in date_str:
-            date_obj = datetime.fromisoformat(date_str.replace('Z', '+00:00'))
-        else:
-            date_obj = datetime.fromisoformat(str(date_str))
-    except (ValueError, TypeError):
-        raise HTTPException(status_code=400, detail="Invalid date format. Expected ISO 8601.")
-
     new_appo = Appointment(
-        patient_id=data.get("patient_id"),
-        doctor_id=data.get("doctor_id"),
-        appointment_date=date_obj,
-        reason=data.get("reason"),
-        appointment_type=data.get("appointment_type", "IN_PERSON"),
-        telemedicine_link=data.get("telemedicine_link")
+        patient_id=patient_id,
+        doctor_id=doctor_id,
+        appointment_date=payload.appointment_date,
+        reason=payload.reason,
+        appointment_type=payload.appointment_type,
+        telemedicine_link=payload.telemedicine_link
     )
     db.add(new_appo)
     await db.commit()

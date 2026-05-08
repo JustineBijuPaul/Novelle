@@ -22,6 +22,7 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, accuracy_score
+from typing import Optional, Dict, Any
 
 # Fix for scikit-learn 1.8.0 + XGBoost 2.0.3 compatibility
 try:
@@ -55,18 +56,16 @@ def _try_sdv_augment(df: pd.DataFrame, n_target: int) -> pd.DataFrame:
         from sdv.metadata import Metadata
         from sdv.single_table import GaussianCopulaSynthesizer
 
-        metadata = Metadata.detect_from_dataframe(data=df)
+        sdv_metadata = Metadata.detect_from_dataframe(data=df)
         
-        synth = GaussianCopulaSynthesizer(metadata, enforce_min_max_values=True)
+        synth = GaussianCopulaSynthesizer(sdv_metadata, enforce_min_max_values=True)
         synth.fit(df)
         synthetic = synth.sample(num_rows=n_target)
         print(f"  ✅ SDV GaussianCopula generated {len(synthetic)} rows")
         return synthetic
-    except ImportError:
-        print("  ⚠️  SDV not installed, using bootstrap resampling")
-        return df.sample(n=n_target, replace=True, random_state=42).reset_index(drop=True)
-    except Exception as e:
-        print(f"  ⚠️  SDV failed ({e}), using bootstrap resampling")
+    except (ImportError, Exception) as e:
+        msg = "SDV not installed" if isinstance(e, ImportError) else f"SDV failed ({e})"
+        print(f"  ⚠️  {msg}, using bootstrap resampling")
         return df.sample(n=n_target, replace=True, random_state=42).reset_index(drop=True)
 
 
@@ -350,7 +349,7 @@ def _apply_smote(X: np.ndarray, y: np.ndarray, feature_cols: list) -> tuple:
 
     try:
         min_count = min(pd.Series(y).value_counts()) - 1
-        k_neighbors = max(1, min(3, int(min_count)))
+        k_neighbors = max(1, min(3, min_count))
         sm = SMOTE(random_state=42, k_neighbors=k_neighbors)
         X_res, y_res = sm.fit_resample(X, y)
         return X_res, y_res
@@ -358,7 +357,7 @@ def _apply_smote(X: np.ndarray, y: np.ndarray, feature_cols: list) -> tuple:
         return X, y
 
 
-def train_mental_health_model(params: dict = None):
+def train_mental_health_model(params: Optional[Dict[str, Any]] = None):
     """Train XGBoost mental health risk classifier."""
     if params is None:
         params = {"n_estimators": 200, "max_depth": 6, "learning_rate": 0.1, "samples": N_SAMPLES}
@@ -421,7 +420,7 @@ def train_mental_health_model(params: dict = None):
     print("  ✅ Saved: mental_health_xgb.joblib, scaler, encoder, features")
 
 
-def train_physical_health_model(params: dict = None):
+def train_physical_health_model(params: Optional[Dict[str, Any]] = None):
     """Train XGBoost ensemble physical health risk classifier."""
     if params is None:
         params = {"n_estimators": 150, "max_depth": 5, "learning_rate": 0.1, "samples": N_SAMPLES}
@@ -486,7 +485,7 @@ def train_physical_health_model(params: dict = None):
     print("  ✅ Saved: physical_health_ensemble.joblib, scaler, encoder, features")
 
 
-def train_fetal_health_model(params: dict = None):
+def train_fetal_health_model(params: Optional[Dict[str, Any]] = None):
     """Train LightGBM fetal health risk classifier."""
     if params is None:
         params = {"n_estimators": 250, "max_depth": 7, "learning_rate": 0.08, "samples": N_SAMPLES}

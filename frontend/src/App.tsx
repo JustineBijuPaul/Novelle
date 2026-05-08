@@ -27,6 +27,7 @@ import HospitalAdminAIInsights from './pages/HospitalAdminAIInsights';
 import HospitalAdminReports from './pages/HospitalAdminReports';
 import HospitalAdminMultiHospital from './pages/HospitalAdminMultiHospital';
 import HospitalAdminSettings from './pages/HospitalAdminSettings';
+import TelemedicinePage from './pages/TelemedicinePage';
 
 function PrivateRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated } = useAuthStore();
@@ -119,6 +120,7 @@ export default function App() {
         <Route path="hospital-admin/hospitals" element={<HospitalAdminMultiHospital />} />
         <Route path="hospital-admin/settings" element={<HospitalAdminSettings />} />
         <Route path="hospital-admin/:subpage" element={<HospitalAdminDashboard />} />
+        <Route path="telemedicine/:sessionId" element={<TelemedicinePage />} />
       </Route>
 
       {/* Catch-all */}

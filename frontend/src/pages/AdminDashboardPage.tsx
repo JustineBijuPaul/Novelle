@@ -11,7 +11,7 @@ import {
   Brain, Cpu, Layers, History, ChevronRight, PlayCircle, Settings2, TrendingDown, Target, Map, PieChart,
   Siren, PhoneForwarded, AlertCircle, FileText, Download, DollarSign, Gem, Briefcase
 } from 'lucide-react';
-import { platformAdminService } from '../services/endpoints';
+import { platformAdminService, mlopsService, complianceService } from '../services/endpoints';
 import toast from 'react-hot-toast';
 import { cn } from '../utils/helpers';
 
@@ -22,6 +22,38 @@ function AIControlCenterView({ data }: { data: any }) {
   const [isRetraining, setIsRetraining] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [modelSettings, setModelSettings] = useState<any>(null);
+  const [registryModels, setRegistryModels] = useState<any[]>([]);
+  const [driftReports, setDriftReports] = useState<Record<string, any>>({});
+
+  useEffect(() => {
+    const fetchRegistry = async () => {
+      try {
+        const res = await mlopsService.listModels();
+        setRegistryModels(res.data);
+        
+        // Fetch drift for each model
+        const driftPromises = res.data.map((m: any) => mlopsService.getDriftReport(m.model_name));
+        const driftResults = await Promise.all(driftPromises);
+        const driftMap: any = {};
+        driftResults.forEach((r: any, i: number) => {
+          driftMap[res.data[i].model_name] = r.data;
+        });
+        setDriftReports(driftMap);
+      } catch (err) {
+        console.error("MLOps sync failed", err);
+      }
+    };
+    fetchRegistry();
+  }, []);
+
+  const handlePromote = async (modelId: string, status: string) => {
+    try {
+      await mlopsService.promoteModel(modelId, status as any);
+      toast.success(`Model successfully promoted to ${status}`);
+    } catch (err) {
+      toast.error("Promotion failed");
+    }
+  };
 
   if (!data?.models) return null;
 
@@ -59,7 +91,11 @@ function AIControlCenterView({ data }: { data: any }) {
           </div>
           <div className="flex gap-4">
              <button 
-               onClick={() => toast.success('Audit logs retrieved from non-repudiable ledger')}
+               onClick={async () => {
+                 const res = await complianceService.getAuditLogs();
+                 toast.success('Live audit stream retrieved from non-repudiable ledger');
+                 console.log(res.data);
+               }}
                className="px-6 py-3 bg-white border border-gray-100 rounded-2xl text-sm font-black text-gray-600 hover:bg-gray-50 transition-all flex items-center gap-2"
              >
                 <History className="w-4 h-4" /> Audit Logs

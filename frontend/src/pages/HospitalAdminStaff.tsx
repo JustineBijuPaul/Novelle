@@ -30,6 +30,8 @@ export default function HospitalAdminStaff() {
     specialty: 'OB-GYN',
     license: ''
   });
+  const [workloadMatrix, setWorkloadMatrix] = React.useState<any[]>([]);
+  const [complianceReport, setComplianceReport] = React.useState<any>(null);
 
   const fetchStaff = async () => {
     setLoading(true);
@@ -37,6 +39,14 @@ export default function HospitalAdminStaff() {
       const roleMap: any = { 'Doctors': 'OB-GYN', 'Nurses': 'Nurse', 'Specialists': 'Specialist' };
       const res = await hospitalAdminService.listStaff({ role: roleMap[activeTab] });
       setStaff(res.data);
+      
+      // Fetch operational data
+      const [workloadRes, complianceRes] = await Promise.all([
+        hospitalAdminService.getWorkloadMatrix(),
+        hospitalAdminService.getPerformanceMetrics()
+      ]);
+      setWorkloadMatrix(workloadRes.data);
+      setComplianceReport(complianceRes.data);
     } catch (error) {
       console.error("Failed to fetch staff", error);
     } finally {
@@ -128,8 +138,13 @@ export default function HospitalAdminStaff() {
           {/* Quick Stats Grid */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <StaffStatCard label="Active Now" value={staff.filter(s => s.status === 'Active').length} icon={Users} color="green" />
-            <StaffStatCard label="Avg Workload" value="8.4 Patients" icon={Building2} color="blue" />
-            <StaffStatCard label="Avg Response" value="12 mins" icon={Clock} color="purple" />
+            <StaffStatCard 
+              label="Avg Workload" 
+              value={`${(workloadMatrix.reduce((acc, curr) => acc + curr.case_count, 0) / (workloadMatrix.length || 1)).toFixed(1)} Cases`} 
+              icon={Building2} 
+              color="blue" 
+            />
+            <StaffStatCard label="Avg Response" value={complianceReport?.sla_response_time || "12m"} icon={Clock} color="purple" />
           </div>
 
           {/* Search & Actions */}

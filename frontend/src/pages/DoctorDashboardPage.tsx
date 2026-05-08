@@ -1168,17 +1168,26 @@ function MedicationCard({ medication }: { medication: { name: string; dosage: st
   );
 }
 
-function SessionCard({ room }: { room: { title: string; subtitle: string; status: string; action: string } }) {
+function SessionCard({ room }: { room: any }) {
+  const navigate = useNavigate();
   return (
-    <div className="card border-slate-200 bg-white">
+    <div className="card border-slate-200 bg-white hover:border-primary-200 transition-all group">
       <div className="flex items-center justify-between gap-3">
         <div>
           <h4 className="text-sm font-bold text-slate-900">{room.title}</h4>
           <p className="text-xs text-slate-500">{room.subtitle}</p>
         </div>
-        <span className="rounded-full bg-emerald-100 px-2.5 py-1 text-[10px] font-black uppercase tracking-widest text-emerald-700">{room.status}</span>
+        <span className={cn(
+          "rounded-full px-2.5 py-1 text-[10px] font-black uppercase tracking-widest",
+          room.status === 'ACTIVE' ? "bg-green-100 text-green-700" : "bg-emerald-100 text-emerald-700"
+        )}>
+          {room.status}
+        </span>
       </div>
-      <button className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white">
+      <button 
+        onClick={() => navigate(`/telemedicine/${room.id || 'DEMO_SESSION'}`)}
+        className="mt-4 flex w-full items-center justify-center gap-2 rounded-2xl bg-slate-950 px-4 py-3 text-sm font-semibold text-white hover:bg-primary-600 transition-all shadow-lg"
+      >
         {room.action} <PhoneCall className="h-4 w-4" />
       </button>
     </div>

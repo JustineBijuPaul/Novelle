@@ -281,6 +281,53 @@ export const hospitalAdminService = {
     api.put('/hospital-admin/settings', data),
   getSystemAuditLogs: () => 
     api.get('/hospital-admin/settings/audit-logs'),
+  getWorkloadMatrix: () => 
+    api.get('/hospital-admin/operations/workload'),
+  getDeptLoadMatrix: () => 
+    api.get('/hospital-admin/operations/departments'),
+  getComplianceReport: () => 
+    api.get('/hospital-admin/operations/compliance'),
+  autoRouteEscalation: (id: number) => 
+    api.post(`/hospital-admin/escalations/${id}/auto-route`),
+  listDepartments: () => 
+    api.get('/hospital-admin/departments'),
+};
+
+export const mlopsService = {
+  listModels: () => 
+    api.get('/mlops/models'),
+  registerModel: (data: { name: string; artifact_path: string; metrics: any }) => 
+    api.post('/mlops/models/register', data),
+  promoteModel: (modelId: string, targetStatus: 'STAGING' | 'PRODUCTION') => 
+    api.post(`/mlops/models/${modelId}/promote`, { target_status: targetStatus }),
+  rollbackModel: (modelName: string) => 
+    api.post(`/mlops/models/${modelName}/rollback`),
+  getDriftReport: (modelName: string) => 
+    api.get(`/mlops/monitoring/drift/${modelName}`),
+};
+
+export const complianceService = {
+  getAuditLogs: (params?: { limit?: number; user_id?: number }) => 
+    api.get('/compliance/audit/logs', { params }),
+  updateConsent: (data: { sharing: bool; research: bool; emergency: bool }) => 
+    api.post('/compliance/consent/update', data),
+  getConsentStatus: () => 
+    api.get('/compliance/consent/status'),
+  getSecurityAnomalies: () => 
+    api.get('/compliance/security/anomalies'),
+};
+
+export const telemedicineService = {
+  createSession: (data: { appointment_id: number; doctor_id: number; patient_id: number }) => 
+    api.post('/telemedicine/sessions', data),
+  joinSession: (sessionId: string) => 
+    api.get(`/telemedicine/sessions/${sessionId}/join`),
+  sendMessage: (data: { receiver_id: number; content: string; content_type?: string; file_url?: string }) => 
+    api.post('/telemedicine/messages', data),
+  getChatHistory: (otherUserId: number) => 
+    api.get(`/telemedicine/messages/history/${otherUserId}`),
+  saveSummary: (sessionId: string, summary: any) => 
+    api.post(`/telemedicine/sessions/${sessionId}/summary`, summary),
 };
 
 export const platformAdminService = {
