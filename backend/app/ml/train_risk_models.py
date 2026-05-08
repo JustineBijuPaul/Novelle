@@ -22,7 +22,21 @@ from pathlib import Path
 from sklearn.model_selection import train_test_split, StratifiedKFold
 from sklearn.preprocessing import StandardScaler, LabelEncoder
 from sklearn.metrics import classification_report, accuracy_score
-from imblearn.over_sampling import SMOTE
+
+# Fix for scikit-learn 1.8.0 + XGBoost 2.0.3 compatibility
+try:
+    from xgboost import XGBClassifier
+    if hasattr(XGBClassifier, "__sklearn_tags__"):
+        _orig_tags = XGBClassifier.__sklearn_tags__
+        def _patched_tags(self):
+            tags = _orig_tags(self)
+            if tags.estimator_type is None:
+                tags.estimator_type = "classifier"
+            return tags
+        XGBClassifier.__sklearn_tags__ = _patched_tags
+except ImportError:
+    pass
+# SMOTE is imported lazily inside _apply_smote to avoid hard dependency at module import
 
 np.random.seed(42)
 MODEL_DIR = Path(__file__).parent / "models"
@@ -38,11 +52,11 @@ N_SAMPLES = 5000
 def _try_sdv_augment(df: pd.DataFrame, n_target: int) -> pd.DataFrame:
     """Attempt SDV augmentation; fall back to bootstrap if unavailable."""
     try:
+        from sdv.metadata import Metadata
         from sdv.single_table import GaussianCopulaSynthesizer
-        from sdv.metadata import SingleTableMetadata
 
-        metadata = SingleTableMetadata()
-        metadata.detect_from_dataframe(df)
+        metadata = Metadata.detect_from_dataframe(data=df)
+        
         synth = GaussianCopulaSynthesizer(metadata, enforce_min_max_values=True)
         synth.fit(df)
         synthetic = synth.sample(num_rows=n_target)
@@ -324,24 +338,38 @@ def engineer_fetal_features(df: pd.DataFrame) -> tuple[pd.DataFrame, list]:
 # ═══════════════════════════════════════════════════════════
 
 def _apply_smote(X: np.ndarray, y: np.ndarray, feature_cols: list) -> tuple:
-    """Balance classes with SMOTE."""
+    """Balance classes with SMOTE; no-op if SMOTE isn't available or fails.
+
+    The import is performed lazily to keep editors and lightweight environments
+    from reporting missing imports when the package isn't installed.
+    """
     try:
-        sm = SMOTE(random_state=42, k_neighbors=min(3, min(pd.Series(y).value_counts()) - 1))
+        from imblearn.over_sampling import SMOTE  # type: ignore
+    except Exception:
+        return X, y
+
+    try:
+        min_count = min(pd.Series(y).value_counts()) - 1
+        k_neighbors = max(1, min(3, int(min_count)))
+        sm = SMOTE(random_state=42, k_neighbors=k_neighbors)
         X_res, y_res = sm.fit_resample(X, y)
         return X_res, y_res
     except Exception:
         return X, y
 
 
-def train_mental_health_model():
+def train_mental_health_model(params: dict = None):
     """Train XGBoost mental health risk classifier."""
+    if params is None:
+        params = {"n_estimators": 200, "max_depth": 6, "learning_rate": 0.1, "samples": N_SAMPLES}
+    
     print("\n" + "=" * 60)
-    print("🧠 TRAINING: Mental Health XGBoost Classifier")
+    print(f"🧠 TRAINING: Mental Health XGBoost Classifier (Params: {params})")
     print("=" * 60)
 
     from xgboost import XGBClassifier
 
-    df = generate_mental_health_data()
+    df = generate_mental_health_data(n=params.get("samples", N_SAMPLES))
     df, feature_cols = engineer_mental_features(df)
 
     le = LabelEncoder()
@@ -361,14 +389,13 @@ def train_mental_health_model():
     X_train_s, y_train = _apply_smote(X_train_s, y_train, feature_cols)
 
     model = XGBClassifier(
-        n_estimators=200,
-        max_depth=6,
-        learning_rate=0.1,
+        n_estimators=params.get("n_estimators", 200),
+        max_depth=params.get("max_depth", 6),
+        learning_rate=params.get("learning_rate", 0.1),
         subsample=0.8,
         colsample_bytree=0.8,
         reg_alpha=0.1,
         reg_lambda=1.0,
-        use_label_encoder=False,
         eval_metric="mlogloss",
         random_state=42,
     )
@@ -394,17 +421,20 @@ def train_mental_health_model():
     print("  ✅ Saved: mental_health_xgb.joblib, scaler, encoder, features")
 
 
-def train_physical_health_model():
+def train_physical_health_model(params: dict = None):
     """Train XGBoost ensemble physical health risk classifier."""
+    if params is None:
+        params = {"n_estimators": 150, "max_depth": 5, "learning_rate": 0.1, "samples": N_SAMPLES}
+        
     print("\n" + "=" * 60)
-    print("💪 TRAINING: Physical Health XGBoost Ensemble Classifier")
+    print(f"💪 TRAINING: Physical Health XGBoost Ensemble Classifier (Params: {params})")
     print("=" * 60)
 
     from xgboost import XGBClassifier
     from sklearn.ensemble import VotingClassifier, RandomForestClassifier
     from sklearn.linear_model import LogisticRegression
 
-    df = generate_physical_health_data()
+    df = generate_physical_health_data(n=params.get("samples", N_SAMPLES))
     df, feature_cols = engineer_physical_features(df)
 
     le = LabelEncoder()
@@ -424,15 +454,17 @@ def train_physical_health_model():
     X_train_s, y_train = _apply_smote(X_train_s, y_train, feature_cols)
 
     xgb = XGBClassifier(
-        n_estimators=150, max_depth=5, learning_rate=0.1,
+        n_estimators=params.get("n_estimators", 150), 
+        max_depth=params.get("max_depth", 5), 
+        learning_rate=params.get("learning_rate", 0.1),
         subsample=0.8, colsample_bytree=0.8,
-        use_label_encoder=False, eval_metric="mlogloss", random_state=42,
+        eval_metric="mlogloss", random_state=42,
     )
     rf = RandomForestClassifier(
         n_estimators=150, max_depth=8, random_state=42, n_jobs=-1,
     )
     lr = LogisticRegression(
-        max_iter=500, multi_class="multinomial", random_state=42,
+        max_iter=500, random_state=42,
     )
 
     ensemble = VotingClassifier(
@@ -454,15 +486,18 @@ def train_physical_health_model():
     print("  ✅ Saved: physical_health_ensemble.joblib, scaler, encoder, features")
 
 
-def train_fetal_health_model():
+def train_fetal_health_model(params: dict = None):
     """Train LightGBM fetal health risk classifier."""
+    if params is None:
+        params = {"n_estimators": 250, "max_depth": 7, "learning_rate": 0.08, "samples": N_SAMPLES}
+
     print("\n" + "=" * 60)
-    print("👶 TRAINING: Fetal Health LightGBM Classifier")
+    print(f"👶 TRAINING: Fetal Health LightGBM Classifier (Params: {params})")
     print("=" * 60)
 
     import lightgbm as lgb
 
-    df = generate_fetal_health_data()
+    df = generate_fetal_health_data(n=params.get("samples", N_SAMPLES))
     df, feature_cols = engineer_fetal_features(df)
 
     le = LabelEncoder()
@@ -482,9 +517,9 @@ def train_fetal_health_model():
     X_train_s, y_train = _apply_smote(X_train_s, y_train, feature_cols)
 
     model = lgb.LGBMClassifier(
-        n_estimators=250,
-        max_depth=7,
-        learning_rate=0.08,
+        n_estimators=params.get("n_estimators", 250),
+        max_depth=params.get("max_depth", 7),
+        learning_rate=params.get("learning_rate", 0.08),
         subsample=0.8,
         colsample_bytree=0.8,
         reg_alpha=0.05,

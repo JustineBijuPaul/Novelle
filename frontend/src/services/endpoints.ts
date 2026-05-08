@@ -294,8 +294,20 @@ export const platformAdminService = {
     api.get('/platform-admin/infrastructure'),
   listHospitals: () => 
     api.get('/platform-admin/hospitals'),
+  getAiMetrics: () => 
+    api.get('/platform-admin/ai-metrics'),
+  getGlobalAnalytics: () => 
+    api.get('/platform-admin/global-analytics'),
+  getGlobalEscalations: () => 
+    api.get('/platform-admin/global-escalations'),
+  getBillingData: () => 
+    api.get('/platform-admin/billing'),
   createHospital: (data: any) => 
     api.post('/platform-admin/hospitals', data),
+  updateHospital: (hospitalId: number, data: any) => 
+    api.patch(`/platform-admin/hospitals/${hospitalId}`, data),
+  deleteHospital: (hospitalId: number) => 
+    api.delete(`/platform-admin/hospitals/${hospitalId}`),
   getRegionalStats: () => 
     api.get('/platform-admin/hospitals/regional'),
   listGlobalUsers: () => 
@@ -308,4 +320,14 @@ export const platformAdminService = {
     api.patch(`/platform-admin/users/${userId}/status`, { status }),
   deleteUser: (userId: number) => 
     api.delete(`/platform-admin/users/${userId}`),
+  retrainModel: (modelName: string) => 
+    api.post(`/platform-admin/ai/retrain/${modelName}`),
+  updateModelSettings: (modelName: string, params: any) => 
+    api.post(`/platform-admin/ai/settings/${modelName}`, params),
+  exportAnalyticsReport: () => 
+    api.get('/platform-admin/analytics/export'),
+  getStrategicGoals: () => 
+    api.get('/platform-admin/analytics/goals'),
+  getEscalationAudit: (id: number) => 
+    api.get(`/platform-admin/escalations/${id}/audit`),
 };

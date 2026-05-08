@@ -1,10 +1,16 @@
 [
   "phq9_score",
   "gad7_score",
-  "mood_avg_7d",
-  "sleep_avg_7d",
-  "stress_avg_7d",
-  "social_support",
-  "journal_sentiment_avg",
-  "previous_mental_history"
+  "mood_score",
+  "stress_level",
+  "social_support_score",
+  "phq9_gad7_combined",
+  "mood_stress_ratio",
+  "support_deficit",
+  "depression_severity",
+  "anxiety_severity",
+  "age",
+  "pregnancy_week",
+  "trimester_num",
+  "previous_pregnancies"
 ]

@@ -19,5 +19,12 @@
   "histogram_mean",
   "histogram_median",
   "histogram_variance",
-  "histogram_tendency"
+  "histogram_tendency",
+  "total_decelerations",
+  "decel_severity_ratio",
+  "variability_score",
+  "abnormal_variability",
+  "histogram_range",
+  "histogram_skewness",
+  "reactivity_score"
 ]

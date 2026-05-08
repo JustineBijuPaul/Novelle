@@ -6,7 +6,7 @@ import {
   Stethoscope, ChevronRight, Shield, Users, Building2, ShieldAlert, CreditCard,
   Calendar, Video, Zap, LayoutDashboard, UserSquare2, BarChart3,
   FileBarChart, MessagesSquare, Sparkles, Settings as SettingsIcon,
-  BedDouble, GraduationCap
+  BedDouble, GraduationCap, HeartPulse, NotebookPen, Pill, ListTodo, MessageSquare
 } from 'lucide-react';
 import { useAuthStore } from '../../stores/authStore';
 import { useAppStore } from '../../stores/appStore';
@@ -25,8 +25,19 @@ const userNavItems = [
 ];
 
 const doctorNavItems = [
+  { path: '/doctor', label: 'Dashboard', icon: LayoutDashboard },
   { path: '/doctor/patients', label: 'Patients', icon: Users },
+  { path: '/doctor/appointments', label: 'Appointments', icon: Calendar },
   { path: '/doctor/escalations', label: 'Escalations', icon: ShieldAlert },
+  { path: '/doctor/monitoring', label: 'Monitoring', icon: HeartPulse },
+  { path: '/doctor/clinical-notes', label: 'Clinical Notes', icon: NotebookPen },
+  { path: '/doctor/prescriptions', label: 'Prescriptions', icon: Pill },
+  { path: '/doctor/telehealth', label: 'Telehealth', icon: Video },
+  { path: '/doctor/ai-copilot', label: 'AI Copilot', icon: Sparkles },
+  { path: '/doctor/reports', label: 'Reports', icon: FileBarChart },
+  { path: '/doctor/communication', label: 'Communication', icon: MessageSquare },
+  { path: '/doctor/tasks', label: 'Tasks', icon: ListTodo },
+  { path: '/doctor/settings', label: 'Settings', icon: SettingsIcon },
 ];
 
 const hospitalAdminNavItems = [
@@ -127,7 +138,7 @@ export default function Sidebar() {
           <Link 
             to={
               user?.role === 'platform_admin' ? '/admin' :
-              user?.role === 'doctor' ? '/doctor/patients' : 
+              user?.role === 'doctor' ? '/doctor' : 
               user?.role === 'hospital_admin' ? '/hospital-admin' :
               '/dashboard'
             } 

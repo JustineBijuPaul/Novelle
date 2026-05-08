@@ -1,0 +1,20 @@
+{
+  "Maternal Risk Predictor": {
+    "n_estimators": 200,
+    "max_depth": 6,
+    "learning_rate": 0.1,
+    "samples": 5000
+  },
+  "Fetal Health Analyzer": {
+    "n_estimators": 250,
+    "max_depth": 7,
+    "learning_rate": 0.08,
+    "samples": 5000
+  },
+  "Mental Wellness Engine": {
+    "n_estimators": 150,
+    "max_depth": 5,
+    "learning_rate": 0.1,
+    "samples": 5000
+  }
+}

@@ -37,7 +37,7 @@ function PublicRoute({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, user } = useAuthStore();
   if (isAuthenticated) {
     let target = '/dashboard';
-    if (user?.role === 'doctor') target = '/doctor/patients';
+    if (user?.role === 'doctor') target = '/doctor';
     else if (user?.role === 'platform_admin') target = '/admin';
     else if (user?.role === 'hospital_admin') target = '/hospital-admin';
     return <Navigate to={target} replace />;
@@ -64,7 +64,7 @@ export default function App() {
             : useAuthStore.getState().user?.role === 'platform_admin' 
             ? <Navigate to="/admin" replace /> 
             : useAuthStore.getState().user?.role === 'doctor'
-            ? <Navigate to="/doctor/patients" replace /> 
+            ? <Navigate to="/doctor" replace /> 
             : <DashboardPage />
         } />
         <Route path="health-log" element={<HealthLogPage />} />
@@ -75,9 +75,19 @@ export default function App() {
         <Route path="baby-growth" element={<BabyGrowthPage />} />
         <Route path="hospitals" element={<HospitalsPage />} />
         <Route path="reminders" element={<RemindersPage />} />
+        <Route path="doctor" element={<DoctorDashboardPage />} />
         <Route path="doctor/patients" element={<DoctorDashboardPage />} />
+        <Route path="doctor/appointments" element={<DoctorDashboardPage />} />
         <Route path="doctor/escalations" element={<DoctorDashboardPage />} />
-        <Route path="doctor" element={<Navigate to="/doctor/patients" replace />} />
+        <Route path="doctor/monitoring" element={<DoctorDashboardPage />} />
+        <Route path="doctor/clinical-notes" element={<DoctorDashboardPage />} />
+        <Route path="doctor/prescriptions" element={<DoctorDashboardPage />} />
+        <Route path="doctor/telehealth" element={<DoctorDashboardPage />} />
+        <Route path="doctor/ai-copilot" element={<DoctorDashboardPage />} />
+        <Route path="doctor/reports" element={<DoctorDashboardPage />} />
+        <Route path="doctor/communication" element={<DoctorDashboardPage />} />
+        <Route path="doctor/tasks" element={<DoctorDashboardPage />} />
+        <Route path="doctor/settings" element={<DoctorDashboardPage />} />
         <Route path="admin" element={<AdminDashboardPage />} />
         <Route path="admin/organizations" element={<AdminDashboardPage />} />
         <Route path="admin/hospitals" element={<AdminDashboardPage />} />
