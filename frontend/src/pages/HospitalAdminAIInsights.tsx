@@ -14,7 +14,7 @@ import { hospitalAdminService } from '../services/endpoints';
 
 export default function HospitalAdminAIInsights() {
   const [activeTab, setActiveTab] = React.useState('AI Copilot');
-  const [forecastData, setForecastData] = React.useState<any>(null);
+  const [forecastData, setForecastData] = React.useState<any[]>([]);
   const [recommendations, setRecommendations] = React.useState<any[]>([]);
   const [auditLogs, setAuditLogs] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
@@ -27,7 +27,7 @@ export default function HospitalAdminAIInsights() {
         hospitalAdminService.getAIRecommendations(),
         hospitalAdminService.getAIAuditLogs()
       ]);
-      setForecastData(forecast.data);
+      setForecastData(forecast.data || []);
       setRecommendations(recs.data);
       setAuditLogs(logs.data);
     } catch (error) {
@@ -45,6 +45,19 @@ export default function HospitalAdminAIInsights() {
     "AI Copilot", "Risk Forecasts", "Model Explanations", 
     "Smart Recommendations", "AI Audit Logs"
   ];
+  const forecastTrend = React.useMemo(() => {
+    if (forecastData.length < 2) return 'Stable';
+    const start = forecastData[0]?.predicted_risk ?? 0;
+    const end = forecastData[forecastData.length - 1]?.predicted_risk ?? 0;
+    if (end > start) return 'Rising';
+    if (end < start) return 'Falling';
+    return 'Stable';
+  }, [forecastData]);
+  const predictedHighRiskVolume = React.useMemo(() => {
+    if (!forecastData.length) return 0;
+    const avg = forecastData.reduce((acc, p) => acc + (Number(p.predicted_risk) || 0), 0) / forecastData.length;
+    return Math.round(avg);
+  }, [forecastData]);
 
   if (loading) {
     return (
@@ -116,13 +129,13 @@ export default function HospitalAdminAIInsights() {
                 <p className="text-xs text-gray-500 font-medium">Predicted high-risk case volume based on current patient pool</p>
               </div>
               <div className="flex items-center gap-2 px-3 py-1 bg-red-50 text-red-600 rounded-full text-[10px] font-black uppercase tracking-wider">
-                <TrendingUp className="w-3 h-3" /> {forecastData?.trend}
+                <TrendingUp className="w-3 h-3" /> {forecastTrend}
               </div>
             </div>
 
             <div className="h-[300px] w-full">
                <ResponsiveContainer width="100%" height="100%">
-                 <AreaChart data={forecastData?.weekly_breakdown}>
+                 <AreaChart data={forecastData}>
                     <defs>
                       <linearGradient id="colorRisk" x1="0" y1="0" x2="0" y2="1">
                         <stop offset="5%" stopColor="#6366f1" stopOpacity={0.1}/>
@@ -130,10 +143,10 @@ export default function HospitalAdminAIInsights() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#f3f4f6" />
-                    <XAxis dataKey="week" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#9ca3af'}} dy={10} />
+                    <XAxis dataKey="day" axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#9ca3af'}} dy={10} />
                     <YAxis axisLine={false} tickLine={false} tick={{fontSize: 10, fontWeight: 700, fill: '#9ca3af'}} />
                     <Tooltip contentStyle={{ borderRadius: '16px', border: 'none', boxShadow: '0 10px 15px -3px rgb(0 0 0 / 0.1)' }} />
-                    <Area type="monotone" dataKey="risk" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorRisk)" dot={{ r: 4, fill: '#6366f1' }} />
+                    <Area type="monotone" dataKey="predicted_risk" stroke="#6366f1" strokeWidth={3} fillOpacity={1} fill="url(#colorRisk)" dot={{ r: 4, fill: '#6366f1' }} />
                  </AreaChart>
                </ResponsiveContainer>
             </div>
@@ -141,7 +154,7 @@ export default function HospitalAdminAIInsights() {
             <div className="grid grid-cols-3 gap-6 pt-4">
               <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Expected High-Risk</p>
-                <p className="text-xl font-black text-gray-900">{forecastData?.predicted_high_risk_volume}</p>
+                <p className="text-xl font-black text-gray-900">{predictedHighRiskVolume}%</p>
               </div>
               <div className="p-4 bg-gray-50 rounded-2xl border border-gray-100">
                 <p className="text-[10px] font-black text-gray-400 uppercase tracking-widest">Model Confidence</p>
@@ -163,7 +176,7 @@ export default function HospitalAdminAIInsights() {
                    </div>
                    <h2 className="text-2xl font-black">AI Admin Copilot</h2>
                    <p className="text-gray-400 text-sm leading-relaxed">
-                     Ask complex facility management questions like "How will the upcoming holiday weekend affect our NICU capacity?" or "Which staff members are currently overloaded?"
+                      Ask complex facility management questions like "How will the upcoming weekend affect NICU capacity?" or "Which teams are currently overloaded?"
                    </p>
                    <div className="relative">
                       <input 
@@ -246,7 +259,7 @@ export default function HospitalAdminAIInsights() {
                   <div className="space-y-1">
                     <p className="text-[10px] font-black text-gray-900 uppercase tracking-tight">{log.action}</p>
                     <p className="text-[9px] text-gray-500 leading-tight">Triggered by {log.trigger}</p>
-                    <p className="text-[8px] font-bold text-gray-400">{new Date(log.timestamp).toLocaleTimeString()}</p>
+                    <p className="text-[8px] font-bold text-gray-400">{log.timestamp ? new Date(log.timestamp).toLocaleTimeString() : '—'}</p>
                   </div>
                 </div>
               ))}

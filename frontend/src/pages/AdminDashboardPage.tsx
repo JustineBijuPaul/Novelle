@@ -5,12 +5,12 @@ import {
   Shield, Users, Building2, Stethoscope, Search, Plus, Trash2,
   X, Save, Activity, ShieldCheck, Check, AlertTriangle, BarChart3,
   CreditCard, MessagesSquare, FileBarChart, Settings, Globe,
-  Server, Database, Heart, TrendingUp, Clock, LayoutDashboard,
-  UserPlus, Brain, Cpu, Layers, ChevronRight, PlayCircle,
+  Server, Database, Heart, TrendingUp, Clock,
+  UserPlus, Brain, Cpu, Layers, PlayCircle,
   Target, Siren, AlertCircle, FileText, DollarSign,
   RefreshCw, Wifi, WifiOff, Lock, Eye, Download,
   Send, Megaphone, LifeBuoy, Plug, Archive, Sliders,
-  MonitorCheck, HardDrive, Gauge, ShieldAlert, UserCog, Landmark
+  MonitorCheck, HardDrive, Gauge, ShieldAlert, UserCog
 } from 'lucide-react';
 import { platformAdminService } from '../services/endpoints';
 import toast from 'react-hot-toast';
@@ -1523,104 +1523,6 @@ function SettingsView() {
   );
 }
 
-// ── SIDEBAR NAVIGATION ──────────────────────────────────
-
-const navItems = [
-  { path: '/admin', label: 'Overview', icon: LayoutDashboard },
-  { path: '/admin/organizations', label: 'Organizations', icon: Landmark },
-  { path: '/admin/hospitals', label: 'Hospitals', icon: Building2 },
-  { path: '/admin/users', label: 'Users & Roles', icon: UserCog },
-  { path: '/admin/ai-control', label: 'AI Control Center', icon: Brain },
-  { path: '/admin/analytics', label: 'Platform Analytics', icon: BarChart3 },
-  { path: '/admin/escalations', label: 'Escalation Monitor', icon: Siren },
-  { path: '/admin/billing', label: 'Billing & Subscriptions', icon: CreditCard },
-  { path: '/admin/infrastructure', label: 'Infrastructure', icon: Server },
-  { path: '/admin/security', label: 'Security & Compliance', icon: Shield },
-  { path: '/admin/communication', label: 'Communication Center', icon: MessagesSquare },
-  { path: '/admin/audit-logs', label: 'Audit Logs', icon: FileText },
-  { path: '/admin/integrations', label: 'Integrations', icon: Plug },
-  { path: '/admin/support', label: 'Support & Tickets', icon: LifeBuoy },
-  { path: '/admin/reports', label: 'Reports', icon: FileBarChart },
-  { path: '/admin/settings', label: 'Settings', icon: Settings },
-];
-
-function AdminSidebar({ currentPath }: { currentPath: string }) {
-  const isActive = (path: string) => {
-    if (path === '/admin') return currentPath === '/admin' || currentPath === '/admin/';
-    return currentPath.startsWith(path);
-  };
-
-  return (
-    <nav className="w-64 shrink-0 bg-white border-r border-gray-200 overflow-y-auto hidden lg:block">
-      <div className="px-5 py-5 border-b border-gray-100">
-        <div className="flex items-center gap-2.5">
-          <div className="p-2 bg-indigo-600 rounded-lg"><Shield className="w-5 h-5 text-white" /></div>
-          <div>
-            <h2 className="text-sm font-bold text-gray-900">Platform Admin</h2>
-            <p className="text-xs text-gray-400">Control Center</p>
-          </div>
-        </div>
-      </div>
-      <div className="py-3 px-3 space-y-0.5">
-        {navItems.map(({ path, label, icon: Icon }) => (
-          <a
-            key={path}
-            href={path}
-            onClick={e => { e.preventDefault(); window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); }}
-            className={`flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm transition group ${
-              isActive(path) ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50 hover:text-gray-900'
-            }`}
-          >
-            <Icon className={`w-4 h-4 shrink-0 ${isActive(path) ? 'text-indigo-600' : 'text-gray-400 group-hover:text-gray-600'}`} />
-            <span className="truncate">{label}</span>
-            {isActive(path) && <ChevronRight className="w-3.5 h-3.5 ml-auto text-indigo-400" />}
-          </a>
-        ))}
-      </div>
-    </nav>
-  );
-}
-
-function MobileNav({ currentPath }: { currentPath: string }) {
-  const [open, setOpen] = useState(false);
-  const current = navItems.find(n => {
-    if (n.path === '/admin') return currentPath === '/admin' || currentPath === '/admin/';
-    return currentPath.startsWith(n.path);
-  });
-
-  return (
-    <div className="lg:hidden">
-      <button onClick={() => setOpen(!open)} className="w-full flex items-center justify-between px-4 py-3 bg-white border border-gray-200 rounded-xl text-sm">
-        <div className="flex items-center gap-2">
-          {current && <current.icon className="w-4 h-4 text-indigo-600" />}
-          <span className="font-medium text-gray-900">{current?.label ?? 'Navigate'}</span>
-        </div>
-        <ChevronRight className={`w-4 h-4 text-gray-400 transition ${open ? 'rotate-90' : ''}`} />
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="mt-2 bg-white border border-gray-200 rounded-xl overflow-hidden shadow-lg">
-            {navItems.map(({ path, label, icon: Icon }) => {
-              const active = path === '/admin' ? (currentPath === '/admin' || currentPath === '/admin/') : currentPath.startsWith(path);
-              return (
-                <a
-                  key={path}
-                  href={path}
-                  onClick={e => { e.preventDefault(); window.history.pushState({}, '', path); window.dispatchEvent(new PopStateEvent('popstate')); setOpen(false); }}
-                  className={`flex items-center gap-2.5 px-4 py-2.5 text-sm transition ${active ? 'bg-indigo-50 text-indigo-700 font-medium' : 'text-gray-600 hover:bg-gray-50'}`}
-                >
-                  <Icon className={`w-4 h-4 ${active ? 'text-indigo-600' : 'text-gray-400'}`} />
-                  {label}
-                </a>
-              );
-            })}
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 // ── VIEW ROUTER ─────────────────────────────────────────
 
 function resolveView(pathname: string) {
@@ -1646,9 +1548,28 @@ function resolveView(pathname: string) {
   return (map[p] ?? map['/admin'])();
 }
 
+const ADMIN_VIEW_TITLES: Record<string, string> = {
+  '/admin': 'Overview',
+  '/admin/organizations': 'Organizations',
+  '/admin/hospitals': 'Hospitals',
+  '/admin/users': 'Users & Roles',
+  '/admin/ai-control': 'AI Control Center',
+  '/admin/analytics': 'Platform Analytics',
+  '/admin/escalations': 'Escalation Monitor',
+  '/admin/billing': 'Billing & Subscriptions',
+  '/admin/infrastructure': 'Infrastructure',
+  '/admin/security': 'Security & Compliance',
+  '/admin/communication': 'Communication Center',
+  '/admin/audit-logs': 'Audit Logs',
+  '/admin/integrations': 'Integrations',
+  '/admin/support': 'Support & Tickets',
+  '/admin/reports': 'Reports',
+  '/admin/settings': 'Settings',
+};
+
 function getViewTitle(pathname: string) {
   const p = pathname.replace(/\/+$/, '') || '/admin';
-  return navItems.find(n => n.path === p)?.label ?? 'Overview';
+  return ADMIN_VIEW_TITLES[p] ?? 'Overview';
 }
 
 // ── MAIN COMPONENT ──────────────────────────────────────
@@ -1658,9 +1579,7 @@ export default function AdminDashboardPage() {
   const pathname = location.pathname;
 
   return (
-    <div className="flex h-full min-h-0">
-      <AdminSidebar currentPath={pathname} />
-
+    <div className="h-full min-h-0 flex flex-col">
       <div className="flex-1 min-w-0 overflow-y-auto bg-gray-50">
         <div className="sticky top-0 z-10 bg-gradient-to-r from-slate-900 to-indigo-900 px-6 py-5 lg:px-8">
           <h1 className="text-xl font-bold text-white">{getViewTitle(pathname)}</h1>
@@ -1668,8 +1587,6 @@ export default function AdminDashboardPage() {
         </div>
 
         <div className="p-4 lg:p-6 space-y-6">
-          <MobileNav currentPath={pathname} />
-
           <AnimatePresence mode="wait">
             <motion.div key={pathname} initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: 0.2 }}>
               {resolveView(pathname)}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Activity, Brain, Baby, AlertTriangle, TrendingUp, Heart, 
@@ -6,10 +7,7 @@ import {
   Pill, Sparkles, ShieldAlert, ArrowRight, History, Zap,
   Clock, CheckSquare, ListTodo, Star, Info
 } from 'lucide-react';
-import { 
-  profileService, healthService, riskService, 
-  mentalService, telemedicineService, patientService 
-} from '../services/endpoints';
+import { profileService, healthService, riskService, mentalService, patientService } from '../services/endpoints';
 import { useAppStore } from '../stores/appStore';
 import { useAuthStore } from '../stores/authStore';
 import { cn, getRiskBadge, formatDate, getWeekDescription } from '../utils/helpers';
@@ -19,8 +17,10 @@ import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, 
   Tooltip, ResponsiveContainer, AreaChart, Area 
 } from 'recharts';
+import toast from 'react-hot-toast';
 
 export default function DashboardPage() {
+  const navigate = useNavigate();
   const { user } = useAuthStore();
   const { profile, setProfile, setRiskDashboard, setHealthSummary } = useAppStore();
   const [riskData, setRiskData] = useState<RiskDashboard | null>(null);
@@ -28,6 +28,10 @@ export default function DashboardPage() {
   const [moodTrend, setMoodTrend] = useState<MoodTrend | null>(null);
   const [loading, setLoading] = useState(true);
   const [activeTasks, setActiveTasks] = useState<{id: string|number; text: string; completed: boolean}[]>([]);
+  const [goalsProgress, setGoalsProgress] = useState<number>(0);
+  const [availableDoctorCount, setAvailableDoctorCount] = useState<number>(0);
+  const [aiInsights, setAiInsights] = useState<any>(null);
+  const [upcomingAppointments, setUpcomingAppointments] = useState<any[]>([]);
 
   useEffect(() => {
     loadDashboard();
@@ -35,12 +39,15 @@ export default function DashboardPage() {
 
   const loadDashboard = async () => {
     try {
-      const [profileRes, riskRes, healthRes, moodRes, goalsRes] = await Promise.allSettled([
+      const [profileRes, riskRes, healthRes, moodRes, goalsRes, doctorsRes, appoRes, insightsRes] = await Promise.allSettled([
         profileService.get(),
         riskService.getFullReport(),
         healthService.getSummary(7),
         mentalService.getMoodTrend(14),
         patientService.getDailyGoals(),
+        patientService.listDoctors(),
+        patientService.listAppointments(),
+        patientService.getAIInsights(),
       ]);
 
       if (profileRes.status === 'fulfilled') {
@@ -59,6 +66,7 @@ export default function DashboardPage() {
       }
       if (goalsRes.status === 'fulfilled' && goalsRes.value.data?.goals) {
         setActiveTasks(goalsRes.value.data.goals.map((g: any) => ({ id: g.id, text: g.text, completed: g.completed })));
+        setGoalsProgress(goalsRes.value.data.progress_percent ?? 0);
       } else {
         setActiveTasks([
           { id: 'vitals', text: 'Log morning vitals', completed: false },
@@ -66,6 +74,32 @@ export default function DashboardPage() {
           { id: 'vitamins', text: 'Take prenatal vitamins', completed: false },
           { id: 'walk', text: '15 minute walk', completed: false },
         ]);
+      }
+      if (doctorsRes.status === 'fulfilled' && Array.isArray(doctorsRes.value.data)) {
+        setAvailableDoctorCount(doctorsRes.value.data.filter((d: any) => d.available).length);
+      }
+      if (appoRes.status === 'fulfilled' && Array.isArray(appoRes.value.data)) {
+        const now = new Date();
+        const upcoming = appoRes.value.data
+          .filter((a: any) => {
+            const rawDate = a.appointment_date || a.date;
+            if (!rawDate) return false;
+            const date = new Date(rawDate);
+            if (Number.isNaN(date.getTime())) return false;
+            const status = String(a.status || '').toLowerCase();
+            return date >= now && !['cancelled', 'completed', 'missed'].includes(status);
+          })
+          .sort(
+            (a: any, b: any) =>
+              new Date(a.appointment_date || a.date).getTime() -
+              new Date(b.appointment_date || b.date).getTime(),
+          );
+        setUpcomingAppointments(upcoming.slice(0, 3));
+      } else {
+        setUpcomingAppointments([]);
+      }
+      if (insightsRes.status === 'fulfilled') {
+        setAiInsights(insightsRes.value.data);
       }
     } catch {
       // Silently handle
@@ -89,7 +123,50 @@ export default function DashboardPage() {
 
   const milestone = profile ? getMilestoneForWeek(profile.pregnancy_week) : null;
   const latestRisk = riskData?.latest_risk;
-  const wellnessScore = 84; // Mock calculation based on logs and risk
+  const riskPenalty = latestRisk?.physical_risk_level === 'HIGH' ? 20 : latestRisk?.physical_risk_level === 'MEDIUM' ? 10 : 0;
+  const mentalPenalty = latestRisk?.mental_risk_level === 'HIGH' ? 15 : latestRisk?.mental_risk_level === 'MEDIUM' ? 8 : 0;
+  const goalBonus = activeTasks.length > 0 ? Math.round((activeTasks.filter(t => t.completed).length / activeTasks.length) * 30) : 15;
+  const wellnessScore = Math.max(20, Math.min(100, 70 + goalBonus - riskPenalty - mentalPenalty));
+  const aiRecommendations = Array.isArray(aiInsights?.recommendations) ? aiInsights.recommendations.slice(0, 3) : [];
+  const notificationItems = [
+    ...(Array.isArray(aiInsights?.alerts)
+      ? aiInsights.alerts.slice(0, 2).map((a: any) => ({
+          icon: AlertTriangle,
+          text: a.message,
+          time: 'Just now',
+        }))
+      : []),
+    ...upcomingAppointments.slice(0, 1).map((a: any) => ({
+      icon: Calendar,
+      text: `Upcoming appointment with ${a.doctor_name || 'doctor'} on ${new Date(a.appointment_date || a.date).toLocaleDateString()}.`,
+      time: 'Upcoming',
+    })),
+  ].slice(0, 3);
+
+  const calculateGoalsProgress = (tasks: { id: string | number; text: string; completed: boolean }[]) => {
+    if (tasks.length === 0) return 0;
+    const completed = tasks.filter((t) => t.completed).length;
+    return Math.round((completed / tasks.length) * 100);
+  };
+
+  const handleToggleTask = async (goalId: string | number, currentCompleted: boolean) => {
+    const goalKey = String(goalId);
+    const updatedTasks = activeTasks.map((t) =>
+      String(t.id) === goalKey ? { ...t, completed: !currentCompleted } : t,
+    );
+    setActiveTasks(updatedTasks);
+    setGoalsProgress(calculateGoalsProgress(updatedTasks));
+    try {
+      await patientService.updateGoal(goalKey, !currentCompleted);
+    } catch (error) {
+      const revertedTasks = activeTasks.map((t) =>
+        String(t.id) === goalKey ? { ...t, completed: currentCompleted } : t,
+      );
+      setActiveTasks(revertedTasks);
+      setGoalsProgress(calculateGoalsProgress(revertedTasks));
+      toast.error('Could not update goal right now.');
+    }
+  };
 
   return (
     <div className="max-w-[1600px] mx-auto pb-12 space-y-8 animate-fade-in">
@@ -102,16 +179,6 @@ export default function DashboardPage() {
           <p className="text-gray-500 mt-1 font-medium">
             Today is {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
           </p>
-        </div>
-        <div className="flex items-center gap-4">
-          <div className="flex -space-x-2">
-            {[1, 2, 3].map(i => (
-              <div key={i} className="w-8 h-8 rounded-full border-2 border-white bg-primary-100 flex items-center justify-center">
-                <UserIcon i={i} />
-              </div>
-            ))}
-          </div>
-          <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">3 Doctors Online</p>
         </div>
       </div>
 
@@ -129,7 +196,10 @@ export default function DashboardPage() {
             <p className="font-bold text-sm">Elevated Health Risk Detected</p>
             <p className="text-xs opacity-80 mt-0.5">Our AI has detected abnormal vitals. We recommend contacting your doctor immediately.</p>
           </div>
-          <button className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all shadow-md shadow-red-200">
+          <button
+            onClick={() => navigate('/patient/emergency-support')}
+            className="px-4 py-2 bg-red-600 text-white rounded-xl text-xs font-bold hover:bg-red-700 transition-all shadow-md shadow-red-200"
+          >
             Contact Doctor
           </button>
         </motion.div>
@@ -191,7 +261,31 @@ export default function DashboardPage() {
                 <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
               </div>
               <p className="text-sm text-gray-600 leading-relaxed italic border-l-4 border-primary-100 pl-4 py-1">
-                "Based on your 7-day vitals, your cardiovascular health remains stable. Blood pressure is within the optimal range for the 24th week. We notice a slight decrease in sleep quality—consider restorative yoga before bed."
+                "{(() => {
+                  const week = profile?.pregnancy_week ?? 24;
+                  const bpAvg = healthSummary?.avg_bp_systolic ?? healthSummary?.bp_trend?.slice(-1)?.[0]?.systolic;
+                  const sleepAvg = healthSummary?.avg_sleep_quality;
+                  const riskLevel = latestRisk?.physical_risk_level ?? 'LOW';
+                  const logCount = healthSummary?.bp_trend?.length ?? 0;
+
+                  const parts: string[] = [];
+                  if (logCount > 0) {
+                    parts.push(`Based on your ${logCount}-day vitals`);
+                    if (bpAvg) {
+                      const bpStatus = bpAvg < 130 ? 'within a healthy range' : bpAvg < 140 ? 'slightly elevated — monitor closely' : 'elevated — please consult your doctor';
+                      parts.push(`blood pressure averages ${Math.round(bpAvg)} mmHg (${bpStatus}) for week ${week}`);
+                    }
+                    if (sleepAvg !== undefined && sleepAvg !== null) {
+                      parts.push(sleepAvg >= 7 ? 'sleep quality looks good — keep it up' : sleepAvg >= 5 ? 'sleep quality could improve — consider restorative yoga before bed' : 'sleep quality is low — prioritize rest and talk to your doctor');
+                    }
+                  } else {
+                    parts.push(`You're in week ${week}. Start logging your daily vitals to get personalized health insights`);
+                  }
+                  if (riskLevel === 'HIGH') {
+                    parts.push('your risk indicators need attention — follow up with your care team');
+                  }
+                  return parts.join('. ') + '.';
+                })()}"
               </p>
             </div>
 
@@ -203,16 +297,21 @@ export default function DashboardPage() {
                 <h3 className="font-display font-bold">AI Recommendations</h3>
               </div>
               <div className="space-y-4">
-                <RecommendationItem 
-                  icon={Droplets} 
-                  title="Increase Water Intake" 
-                  desc="Aim for 3L today to reduce edema risk." 
-                />
-                <RecommendationItem 
-                  icon={Heart} 
-                  title="Iron Supplement" 
-                  desc="Take with Vit C for maximum absorption." 
-                />
+                {aiRecommendations.length > 0 ? (
+                  aiRecommendations.map((rec: any, idx: number) => (
+                    <RecommendationItem
+                      key={`${rec.title}-${idx}`}
+                      icon={rec.category === 'Mental' ? Brain : rec.category === 'Fetal' ? Baby : rec.category === 'Physical' ? Activity : Droplets}
+                      title={rec.title}
+                      desc={rec.detail}
+                    />
+                  ))
+                ) : (
+                  <>
+                    <RecommendationItem icon={Droplets} title="Increase Water Intake" desc="Aim for 3L today to reduce edema risk." />
+                    <RecommendationItem icon={Heart} title="Iron Supplement" desc="Take with Vit C for maximum absorption." />
+                  </>
+                )}
               </div>
             </div>
           </div>
@@ -240,7 +339,12 @@ export default function DashboardPage() {
                   <TrendingUp className="w-5 h-5 text-primary-500" />
                   <h3 className="font-display font-bold text-gray-900">Blood Pressure Trend</h3>
                 </div>
-                <button className="text-[10px] font-bold text-primary-600 hover:text-primary-700 uppercase tracking-widest transition-colors">View History</button>
+                <button
+                  onClick={() => navigate('/patient/risk-report')}
+                  className="text-[10px] font-bold text-primary-600 hover:text-primary-700 uppercase tracking-widest transition-colors"
+                >
+                  View History
+                </button>
               </div>
               <div className="h-[180px] w-full">
                 <ResponsiveContainer width="100%" height="100%">
@@ -270,10 +374,10 @@ export default function DashboardPage() {
           <div className="space-y-4">
             <h4 className="text-xs font-bold text-gray-400 uppercase tracking-widest ml-1">Quick Actions</h4>
             <div className="grid grid-cols-2 gap-3">
-              <QuickActionBtn icon={Plus} label="Log Health" color="primary" />
-              <QuickActionBtn icon={CheckCircle2} label="Mood Check" color="lavender" />
-              <QuickActionBtn icon={Calendar} label="Schedule" color="accent" />
-              <QuickActionBtn icon={Zap} label="Ask AI" color="gray" />
+              <QuickActionBtn icon={Plus} label="Log Health" color="primary" onClick={() => navigate('/patient/health-log')} />
+              <QuickActionBtn icon={CheckCircle2} label="Mood Check" color="lavender" onClick={() => navigate('/patient/mental-health')} />
+              <QuickActionBtn icon={Calendar} label="Schedule" color="accent" onClick={() => navigate('/patient/appointments')} />
+              <QuickActionBtn icon={Zap} label="Ask AI" color="gray" onClick={() => navigate('/patient/ai-insights')} />
             </div>
           </div>
 
@@ -293,10 +397,13 @@ export default function DashboardPage() {
             <div className="space-y-3">
               {activeTasks.map(task => (
                 <div key={task.id} className="flex items-center gap-3 group">
-                  <button className={cn(
+                  <button
+                    onClick={() => handleToggleTask(task.id, task.completed)}
+                    className={cn(
                     "w-5 h-5 rounded-md border transition-all flex items-center justify-center",
                     task.completed ? "bg-emerald-500 border-emerald-500 text-white" : "border-gray-200 hover:border-emerald-300"
-                  )}>
+                    )}
+                  >
                     {task.completed && <CheckCircle2 className="w-3 h-3" />}
                   </button>
                   <span className={cn("text-xs font-medium transition-all", task.completed ? "text-gray-400 line-through" : "text-gray-700")}>
@@ -316,21 +423,29 @@ export default function DashboardPage() {
                 </div>
                 <h3 className="font-display font-bold text-gray-900">Appointments</h3>
               </div>
-              <button className="p-1 hover:bg-gray-50 rounded-lg text-gray-400"><Plus className="w-4 h-4" /></button>
+              <button onClick={() => navigate('/patient/appointments')} className="p-1 hover:bg-gray-50 rounded-lg text-gray-400"><Plus className="w-4 h-4" /></button>
             </div>
             <div className="space-y-4">
-              <AppointmentItem 
-                title="Regular Checkup" 
-                doctor="Dr. Sarah Miller" 
-                time="Tomorrow, 10:30 AM" 
-                type="In-person" 
-              />
-              <AppointmentItem 
-                title="Nutrition Scan" 
-                doctor="Clinical Lab" 
-                time="May 12, 09:00 AM" 
-                type="Lab Visit" 
-              />
+              {upcomingAppointments.length > 0 ? (
+                upcomingAppointments.map((a: any) => (
+                  <AppointmentItem
+                    key={a.id}
+                    title={a.reason || 'Prenatal Consultation'}
+                    doctor={a.doctor_name || 'Assigned Doctor'}
+                    time={new Date(a.appointment_date || a.date).toLocaleString([], { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                    type={String(a.appointment_type || a.type || 'IN_PERSON').replace('_', ' ')}
+                    onClick={() => navigate('/patient/appointments')}
+                  />
+                ))
+              ) : (
+                <AppointmentItem
+                  title="No upcoming appointments"
+                  doctor="Book your next consultation"
+                  time="Tap to schedule now"
+                  type="Plan Care"
+                  onClick={() => navigate('/patient/appointments')}
+                />
+              )}
             </div>
           </div>
 
@@ -343,16 +458,13 @@ export default function DashboardPage() {
               <h3 className="font-display font-bold text-gray-900">Notifications</h3>
             </div>
             <div className="space-y-4">
-              <NotificationItem 
-                icon={Info} 
-                text="Your weekly health report is ready." 
-                time="2h ago" 
-              />
-              <NotificationItem 
-                icon={Stethoscope} 
-                text="Dr. Miller confirmed your checkup." 
-                time="5h ago" 
-              />
+              {notificationItems.length > 0 ? (
+                notificationItems.map((item, idx) => (
+                  <NotificationItem key={`${item.text}-${idx}`} icon={item.icon} text={item.text} time={item.time} />
+                ))
+              ) : (
+                <NotificationItem icon={Info} text="No new alerts. You're all caught up." time="Now" />
+              )}
             </div>
           </div>
 
@@ -391,7 +503,7 @@ function RecommendationItem({ icon: Icon, title, desc }: { icon: any; title: str
   );
 }
 
-function QuickActionBtn({ icon: Icon, label, color }: { icon: any; label: string; color: string }) {
+function QuickActionBtn({ icon: Icon, label, color, onClick }: { icon: any; label: string; color: string; onClick?: () => void }) {
   const styles: any = {
     primary: "bg-primary-50 text-primary-600 hover:bg-primary-100 border-primary-100",
     lavender: "bg-lavender-50 text-lavender-600 hover:bg-lavender-100 border-lavender-100",
@@ -399,19 +511,22 @@ function QuickActionBtn({ icon: Icon, label, color }: { icon: any; label: string
     gray: "bg-gray-50 text-gray-600 hover:bg-gray-100 border-gray-100"
   };
   return (
-    <button className={cn(
-      "flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border transition-all hover:shadow-md active:scale-95",
-      styles[color]
-    )}>
+    <button
+      onClick={onClick}
+      className={cn(
+        "flex flex-col items-center justify-center gap-2 p-4 rounded-2xl border transition-all hover:shadow-md active:scale-95",
+        styles[color],
+      )}
+    >
       <Icon className="w-5 h-5" />
       <span className="text-[10px] font-bold uppercase tracking-widest">{label}</span>
     </button>
   );
 }
 
-function AppointmentItem({ title, doctor, time, type }: { title: string; doctor: string; time: string; type: string }) {
+function AppointmentItem({ title, doctor, time, type, onClick }: { title: string; doctor: string; time: string; type: string; onClick?: () => void }) {
   return (
-    <div className="p-3 rounded-xl border border-gray-100 hover:border-primary-100 transition-all group cursor-pointer">
+    <button onClick={onClick} className="w-full text-left p-3 rounded-xl border border-gray-100 hover:border-primary-100 transition-all group cursor-pointer">
       <div className="flex justify-between items-start mb-2">
         <p className="text-xs font-bold text-gray-900 group-hover:text-primary-600 transition-colors">{title}</p>
         <span className="text-[8px] font-black uppercase tracking-widest bg-gray-50 px-1.5 py-0.5 rounded text-gray-400">{type}</span>
@@ -424,7 +539,7 @@ function AppointmentItem({ title, doctor, time, type }: { title: string; doctor:
         <Clock className="w-3 h-3" />
         {time}
       </div>
-    </div>
+    </button>
   );
 }
 

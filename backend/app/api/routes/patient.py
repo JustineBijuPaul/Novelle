@@ -24,7 +24,37 @@ from app.models.escalation import Escalation
 from app.api.routes.auth import _current_user
 from app.utils.fetalData import get_milestone_for_week
 
+import logging
+from pathlib import Path
+
+logger = logging.getLogger(__name__)
+ML_MODEL_DIR = Path(__file__).resolve().parent.parent.parent / "ml" / "models"
+
 router = APIRouter(prefix="/patient", tags=["Patient Portal"])
+
+
+# ═══════════════════════════════════════════════════════════════
+#  MEDICAL REFERENCE CONSTANTS
+# ═══════════════════════════════════════════════════════════════
+
+EMERGENCY_HELPLINES = [
+    {"name": "KIRAN Mental Health", "number": "1800-599-0019", "type": "mental_health", "available": "24/7"},
+    {"name": "iCall", "number": "9152987821", "type": "counseling", "available": "Mon-Sat 8AM-10PM"},
+    {"name": "Vandrevala Foundation", "number": "1860-2662-345", "type": "crisis", "available": "24/7"},
+    {"name": "Women Helpline", "number": "181", "type": "women_safety", "available": "24/7"},
+    {"name": "Ambulance", "number": "108", "type": "emergency", "available": "24/7"},
+]
+
+DANGER_SIGNS = [
+    "Heavy vaginal bleeding",
+    "Severe headache or blurred vision",
+    "Sudden swelling of face or hands",
+    "High fever (>101°F / 38.3°C)",
+    "Severe abdominal pain",
+    "Decreased or no fetal movement",
+    "Leaking amniotic fluid",
+    "Seizures or convulsions",
+]
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -155,6 +185,153 @@ async def get_my_pregnancy(
     }
 
 
+FALLBACK_RECOMMENDATIONS = {
+    1: [
+        {"category": "Nutrition", "title": "Folic Acid Focus", "detail": "Ensure 400-800mcg of folic acid daily — critical for neural tube development in the first trimester."},
+        {"category": "General", "title": "Stay Hydrated", "detail": "Aim for 2.5-3 liters of water daily to support increasing blood volume."},
+        {"category": "Exercise", "title": "Gentle Movement", "detail": "Light walks and stretching help manage first-trimester nausea and fatigue."},
+    ],
+    2: [
+        {"category": "General", "title": "Stay Hydrated", "detail": "Aim for 2.5-3 liters of water daily for optimal amniotic fluid levels."},
+        {"category": "Exercise", "title": "Daily Walk", "detail": "A 20-minute walk improves circulation and mood during your second trimester."},
+        {"category": "Nutrition", "title": "Iron & Calcium", "detail": "Increase iron-rich foods and calcium to support your baby's rapid bone growth."},
+    ],
+    3: [
+        {"category": "General", "title": "Rest & Prepare", "detail": "Prioritize sleep and finalize your birth plan as your due date approaches."},
+        {"category": "Exercise", "title": "Pelvic Floor Exercises", "detail": "Kegel exercises prepare your body for delivery and aid postpartum recovery."},
+        {"category": "Nutrition", "title": "Protein & DHA", "detail": "Focus on protein-rich foods and omega-3s for your baby's brain development in the third trimester."},
+    ],
+}
+
+ENGAGEMENT_RECOMMENDATIONS = {
+    "low": [
+        {"category": "Engagement", "title": "Quick Daily Check-in", "detail": "Logging vitals takes 2 minutes and helps track your pregnancy health trends."},
+        {"category": "Wellness", "title": "Start Small", "detail": "Set one daily goal — even a 5-minute walk counts toward better health."},
+        {"category": "Support", "title": "Connect with Your Care Team", "detail": "Regular check-ins with your doctor improve outcomes. Schedule your next visit."},
+    ],
+    "medium": [
+        {"category": "Consistency", "title": "Keep the Momentum", "detail": "You're building good habits — try adding one more daily goal this week."},
+        {"category": "Exercise", "title": "Daily Walk", "detail": "A 20-minute walk improves circulation and mood during pregnancy."},
+        {"category": "Nutrition", "title": "Balanced Nutrition", "detail": "Focus on iron-rich foods and stay hydrated with 2.5L water daily."},
+    ],
+    "high": [
+        {"category": "Wellness", "title": "Excellent Self-Care", "detail": "Your consistent tracking is paying off — your health data shows positive trends."},
+        {"category": "Mindfulness", "title": "Stress Management", "detail": "Try a 10-minute guided meditation to maintain your mental wellness."},
+        {"category": "Preparation", "title": "Birth Readiness", "detail": "Review your birth plan and discuss any concerns with your doctor."},
+    ],
+}
+
+
+def _load_engagement_scorer():
+    """Load the engagement scorer model + scaler, returning None if unavailable."""
+    model_path = ML_MODEL_DIR / "engagement_scorer.joblib"
+    scaler_path = ML_MODEL_DIR / "engagement_scaler.joblib"
+    if not model_path.exists() or not scaler_path.exists():
+        return None
+    try:
+        import joblib
+        return {
+            "model": joblib.load(model_path),
+            "scaler": joblib.load(scaler_path),
+        }
+    except Exception as exc:
+        logger.warning("Failed to load engagement scorer: %s", exc)
+        return None
+
+
+def _generate_engagement_based_recommendations(
+    user, db, recent_health: list, trimester: int = 2,
+) -> list[dict]:
+    """Use the engagement scorer model to produce dynamic recommendations."""
+    scorer_data = _load_engagement_scorer()
+    if scorer_data is None:
+        return FALLBACK_RECOMMENDATIONS.get(trimester, FALLBACK_RECOMMENDATIONS[2])
+
+    try:
+        import numpy as np
+
+        days_since = 0.0
+        if recent_health:
+            latest_date = max(h.log_date for h in recent_health if h.log_date)
+            if latest_date:
+                delta = (datetime.now(timezone.utc).date() - latest_date)
+                days_since = delta.days if hasattr(delta, 'days') else 0.0
+
+        avg_logs = float(len(recent_health)) if recent_health else 0.0
+        attendance = 0.7
+        goals_completion = 0.5
+        journal_count = 0
+        chat_count = 0
+        profile_completion = float(user.profile.profile_completion_score / 100) if user.profile and user.profile.profile_completion_score else 0.5
+        pregnancy_week = user.profile.pregnancy_week if user.profile else 24
+        risk_numeric = 1
+
+        features = np.array([[
+            days_since, avg_logs, attendance, goals_completion,
+            journal_count, chat_count, profile_completion,
+            pregnancy_week, risk_numeric,
+        ]])
+
+        scaled = scorer_data["scaler"].transform(features)
+        prediction = scorer_data["model"].predict(scaled)[0]
+
+        label_map = {0: "low", 1: "medium", 2: "high"}
+        engagement_level = label_map.get(int(prediction), "medium")
+
+        return ENGAGEMENT_RECOMMENDATIONS[engagement_level]
+
+    except Exception as exc:
+        logger.warning("Engagement scorer prediction failed: %s", exc)
+        return FALLBACK_RECOMMENDATIONS.get(trimester, FALLBACK_RECOMMENDATIONS[2])
+
+
+def _compute_wellness_score(user, recent_health: list, latest_risk) -> int:
+    """Compute a 0-100 wellness score using the engagement scorer model."""
+    scorer_data = _load_engagement_scorer()
+    base_score = 65
+
+    if scorer_data is not None:
+        try:
+            import numpy as np
+
+            days_since = 0.0
+            if recent_health:
+                latest_date = max(h.log_date for h in recent_health if h.log_date)
+                if latest_date:
+                    delta = datetime.now(timezone.utc).date() - latest_date
+                    days_since = delta.days if hasattr(delta, "days") else 0.0
+
+            features = np.array([[
+                days_since,
+                float(len(recent_health)),
+                0.7,   # attendance placeholder
+                0.5,   # goals_completion placeholder
+                0,     # journal_count
+                0,     # chat_count
+                float(user.profile.profile_completion_score / 100) if user.profile and user.profile.profile_completion_score else 0.5,
+                user.profile.pregnancy_week if user.profile else 24,
+                1,     # risk_numeric
+            ]])
+
+            scaled = scorer_data["scaler"].transform(features)
+            prediction = scorer_data["model"].predict(scaled)[0]
+            base_score = {0: 35, 1: 60, 2: 85}.get(int(prediction), 60)
+        except Exception as exc:
+            logger.warning("Wellness score computation failed: %s", exc)
+
+    if latest_risk:
+        if latest_risk.physical_risk_level == "HIGH":
+            base_score -= 15
+        elif latest_risk.physical_risk_level == "MEDIUM":
+            base_score -= 8
+        if latest_risk.mental_risk_level == "HIGH":
+            base_score -= 10
+        elif latest_risk.mental_risk_level == "MEDIUM":
+            base_score -= 5
+
+    return max(10, min(100, base_score))
+
+
 # ═══════════════════════════════════════════════════════════════
 #  AI INSIGHTS — /patient/ai-insights
 # ═══════════════════════════════════════════════════════════════
@@ -218,11 +395,10 @@ async def get_ai_insights(
                 pass
 
     if not recommendations:
-        recommendations = [
-            {"category": "General", "title": "Stay Hydrated", "detail": "Aim for 2.5-3 liters of water daily for optimal amniotic fluid levels."},
-            {"category": "Exercise", "title": "Daily Walk", "detail": "A 20-minute walk improves circulation and mood."},
-            {"category": "Nutrition", "title": "Prenatal Vitamins", "detail": "Take your folic acid and iron supplements daily."},
-        ]
+        trimester = user.profile.trimester if user.profile else 2
+        recommendations = _generate_engagement_based_recommendations(user, db, recent_health, trimester)
+
+    wellness_score = _compute_wellness_score(user, recent_health, latest_risk)
 
     avg_bp_systolic = None
     avg_sleep = None
@@ -249,6 +425,7 @@ async def get_ai_insights(
         },
         "alerts": alerts,
         "recommendations": recommendations,
+        "wellness_score": wellness_score,
         "weekly_stats": {
             "avg_bp_systolic": avg_bp_systolic,
             "avg_sleep_quality": avg_sleep,
@@ -318,15 +495,27 @@ async def list_my_appointments(
         .order_by(desc(Appointment.appointment_date))
     )
     appointments = result.scalars().all()
+
+    doctor_ids = {a.doctor_id for a in appointments if a.doctor_id}
+    doctor_names = {}
+    if doctor_ids:
+        doctors_result = await db.execute(
+            select(User.id, User.full_name).where(User.id.in_(doctor_ids))
+        )
+        doctor_names = {row[0]: row[1] for row in doctors_result.all()}
+
     return [
         {
             "id": a.id,
+            "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
             "date": a.appointment_date.isoformat() if a.appointment_date else None,
             "reason": a.reason,
             "status": a.status,
+            "appointment_type": a.appointment_type,
             "type": a.appointment_type,
             "telemedicine_link": a.telemedicine_link,
             "doctor_id": a.doctor_id,
+            "doctor_name": doctor_names.get(a.doctor_id, "Unknown Doctor"),
         }
         for a in appointments
     ]
@@ -339,22 +528,79 @@ class AppointmentRequest(BaseModel):
     appointment_type: Optional[str] = "in_person"
 
 
+def _normalize_appointment_type(raw_type: Optional[str]) -> str:
+    if not raw_type:
+        return "IN_PERSON"
+    normalized = raw_type.strip().upper()
+    aliases = {
+        "INPERSON": "IN_PERSON",
+        "IN-PERSON": "IN_PERSON",
+        "CLINIC": "IN_PERSON",
+        "VIDEO": "TELEMEDICINE",
+        "VIDEO_CALL": "TELEMEDICINE",
+        "VIRTUAL": "TELEMEDICINE",
+    }
+    return aliases.get(normalized, normalized)
+
+
+def _parse_appointment_datetime(raw_value: str) -> datetime:
+    value = (raw_value or "").strip()
+    if not value:
+        raise HTTPException(status_code=400, detail="appointment_date is required")
+    if value.endswith("Z"):
+        value = value[:-1] + "+00:00"
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid appointment_date format")
+    if parsed.tzinfo is None:
+        parsed = parsed.replace(tzinfo=timezone.utc)
+    return parsed.astimezone(timezone.utc)
+
+
 @router.post("/appointments")
 async def create_appointment(
     data: AppointmentRequest,
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    doc = (await db.execute(select(Doctor).where(Doctor.id == data.doctor_id))).scalar_one_or_none()
+    # Canonical contract: booking payload should use doctor user_id.
+    # Resolve by user_id first to avoid collisions where a doctor profile id
+    # numerically matches another doctor's user id.
+    doc = (await db.execute(select(Doctor).where(Doctor.user_id == data.doctor_id))).scalar_one_or_none()
+    if not doc:
+        # Backward compatibility for older clients sending Doctor.id
+        doc = (await db.execute(select(Doctor).where(Doctor.id == data.doctor_id))).scalar_one_or_none()
     if not doc:
         raise HTTPException(status_code=404, detail="Doctor not found")
+    if not doc.user_id:
+        raise HTTPException(
+            status_code=400,
+            detail="Selected doctor is not linked to an account yet",
+        )
+    doctor_user = (await db.execute(select(User).where(User.id == doc.user_id))).scalar_one_or_none()
+    if not doctor_user or doctor_user.role != UserRole.doctor:
+        raise HTTPException(status_code=400, detail="Selected doctor account is invalid")
+    if (
+        user.hospital_id is not None
+        and doctor_user.hospital_id is not None
+        and user.hospital_id != doctor_user.hospital_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail="Selected doctor is not available for your hospital",
+        )
+
+    appointment_date = _parse_appointment_datetime(data.appointment_date)
+    if appointment_date < datetime.now(timezone.utc):
+        raise HTTPException(status_code=400, detail="Appointment date must be in the future")
 
     appo = Appointment(
         patient_id=user.id,
-        doctor_id=data.doctor_id,
-        appointment_date=datetime.fromisoformat(data.appointment_date),
+        doctor_id=doc.user_id,
+        appointment_date=appointment_date,
         reason=data.reason,
-        appointment_type=data.appointment_type,
+        appointment_type=_normalize_appointment_type(data.appointment_type),
         status="pending",
     )
     db.add(appo)
@@ -372,25 +618,52 @@ async def list_available_doctors(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Doctor))
+    result = await db.execute(select(Doctor).where(Doctor.user_id.isnot(None)))
     doctors = result.scalars().all()
 
-    hospital_ids = {d.hospital_id for d in doctors if d.hospital_id}
+    doctor_user_ids = {d.user_id for d in doctors if d.user_id}
+    doctor_users = {}
+    if doctor_user_ids:
+        u_result = await db.execute(select(User).where(User.id.in_(doctor_user_ids)))
+        doctor_users = {u.id: u for u in u_result.scalars().all()}
+
+    filtered_doctors = []
+    for d in doctors:
+        doctor_user = doctor_users.get(d.user_id)
+        if not doctor_user or doctor_user.role != UserRole.doctor:
+            continue
+
+        # Restrict to the patient's hospital when known, using the doctor user account
+        # as the source of truth (doctor profile hospital_id can be stale).
+        if (
+            user.hospital_id is not None
+            and doctor_user.hospital_id is not None
+            and doctor_user.hospital_id != user.hospital_id
+        ):
+            continue
+
+        filtered_doctors.append(d)
+
+    hospital_ids = {doctor_users[d.user_id].hospital_id for d in filtered_doctors if d.user_id and doctor_users.get(d.user_id) and doctor_users[d.user_id].hospital_id}
     hospitals = {}
     if hospital_ids:
         h_result = await db.execute(select(Hospital).where(Hospital.id.in_(hospital_ids)))
         hospitals = {h.id: h.name for h in h_result.scalars().all()}
 
+    sorted_doctors = sorted(filtered_doctors, key=lambda d: (d.name or "").lower())
+
     return [
         {
             "id": d.id,
+            "user_id": d.user_id,
+            "appointment_doctor_id": d.user_id or d.id,
             "name": d.name,
             "specialty": d.specialty,
-            "hospital": hospitals.get(d.hospital_id, "Independent"),
+            "hospital": hospitals.get(doctor_users[d.user_id].hospital_id, "Independent") if d.user_id and doctor_users.get(d.user_id) else "Independent",
             "available": d.available_for_escalation,
             "contact": d.contact,
         }
-        for d in doctors
+        for d in sorted_doctors
     ]
 
 
@@ -465,7 +738,10 @@ async def get_daily_goals(
 
     goals_doc = None
     if mongo is not None:
-        goals_doc = await mongo.daily_goals.find_one({"user_id": user.id, "date": today})
+        try:
+            goals_doc = await mongo.daily_goals.find_one({"user_id": user.id, "date": today})
+        except Exception as exc:
+            logger.warning("Mongo daily goals lookup failed, using fallback goals: %s", exc)
 
     if goals_doc:
         goals = goals_doc.get("goals", [])
@@ -515,7 +791,11 @@ async def update_daily_goal(
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
-    existing = await mongo.daily_goals.find_one({"user_id": user.id, "date": today})
+    try:
+        existing = await mongo.daily_goals.find_one({"user_id": user.id, "date": today})
+    except Exception as exc:
+        logger.warning("Mongo daily goals update failed: %s", exc)
+        raise HTTPException(status_code=503, detail="Goals service unavailable")
     if existing:
         await mongo.daily_goals.update_one(
             {"user_id": user.id, "date": today, "goals.id": data.goal_id},
@@ -542,57 +822,181 @@ async def update_daily_goal(
 #  WELLNESS HUB — /patient/wellness/hub
 # ═══════════════════════════════════════════════════════════════
 
+FALLBACK_MEDITATIONS = [
+    {"id": 1, "title": "Morning Calm", "duration": "5m", "category": "breathing"},
+    {"id": 2, "title": "Deep Sleep for Moms", "duration": "15m", "category": "sleep"},
+    {"id": 3, "title": "Anxiety Relief", "duration": "10m", "category": "stress"},
+    {"id": 4, "title": "Body Scan Relaxation", "duration": "12m", "category": "relaxation"},
+]
+
+FALLBACK_WORKOUTS = {
+    1: [
+        {"id": 1, "title": "Gentle Stretching", "duration": "10m", "intensity": "Low"},
+        {"id": 2, "title": "Walking Plan", "duration": "20m", "intensity": "Low"},
+    ],
+    2: [
+        {"id": 3, "title": "Prenatal Yoga Flow", "duration": "25m", "intensity": "Low"},
+        {"id": 4, "title": "Pelvic Floor Strength", "duration": "15m", "intensity": "Low"},
+        {"id": 5, "title": "Aqua Fitness", "duration": "30m", "intensity": "Medium"},
+    ],
+    3: [
+        {"id": 6, "title": "Birth Prep Stretches", "duration": "15m", "intensity": "Low"},
+        {"id": 7, "title": "Breathing for Labor", "duration": "10m", "intensity": "Low"},
+        {"id": 8, "title": "Gentle Walk", "duration": "15m", "intensity": "Low"},
+    ],
+}
+
+FALLBACK_NUTRITION = {
+    1: {"focus": "Folic Acid & Hydration", "foods": ["Leafy greens", "Citrus fruits", "Whole grains", "Lean protein"], "avoid": ["Raw fish", "Alcohol", "Unpasteurized dairy"]},
+    2: {"focus": "Iron & Calcium", "foods": ["Spinach", "Lentils", "Dairy", "Eggs", "Almonds"], "avoid": ["Excess caffeine", "Processed foods"]},
+    3: {"focus": "Protein & DHA", "foods": ["Fish (low-mercury)", "Nuts", "Avocado", "Whole milk", "Dates"], "avoid": ["Large meals before bed", "High-sodium foods"]},
+}
+
+FALLBACK_ARTICLES = [
+    {"id": 1, "title": "Understanding Your Changing Body", "category": "education", "read_time": "5 min"},
+    {"id": 2, "title": "Managing Pregnancy Anxiety", "category": "mental_health", "read_time": "4 min"},
+    {"id": 3, "title": "Preparing for Your Baby's Arrival", "category": "planning", "read_time": "7 min"},
+    {"id": 4, "title": "Safe Exercises by Trimester", "category": "fitness", "read_time": "6 min"},
+]
+
+DURATION_MAP = {"meditation": "10m", "workout": "20m", "nutrition": None, "article": "5 min"}
+INTENSITY_MAP = {1: "Low", 2: "Low", 3: "Medium"}
+
+
+def _load_recommendation_engine():
+    """Load the recommendation engine model, returning None if unavailable."""
+    model_path = ML_MODEL_DIR / "recommendation_engine.joblib"
+    if not model_path.exists():
+        return None
+    try:
+        import joblib
+        return joblib.load(model_path)
+    except Exception as exc:
+        logger.warning("Failed to load recommendation engine: %s", exc)
+        return None
+
+
+def _get_personalized_recommendations(
+    trimester: int,
+    risk_level: str,
+    recent_symptoms: list[str],
+    engine_data: dict,
+) -> dict:
+    """Query the TF-IDF recommendation engine for personalized content."""
+    from sklearn.metrics.pairwise import cosine_similarity
+
+    vectorizer = engine_data["vectorizer"]
+    tfidf_matrix = engine_data.get("tfidf_matrix") or engine_data.get("item_vectors")
+    catalog_raw = engine_data["catalog"]
+
+    if isinstance(catalog_raw, list):
+        import pandas as pd
+        catalog = pd.DataFrame(catalog_raw)
+    else:
+        catalog = catalog_raw
+
+    query_parts = [f"trimester_{trimester}"]
+    if risk_level == "HIGH":
+        query_parts.append("high_risk emergency warning_signs")
+    elif risk_level == "MEDIUM":
+        query_parts.append("moderate_risk monitoring")
+    query_parts.extend(recent_symptoms)
+    query_string = " ".join(query_parts)
+
+    query_vec = vectorizer.transform([query_string])
+    scores = cosine_similarity(query_vec, tfidf_matrix).flatten()
+
+    catalog = catalog.copy()
+    catalog["_score"] = scores
+
+    meditations, workouts, nutrition_items, articles = [], [], [], []
+
+    for _, row in catalog.sort_values("_score", ascending=False).iterrows():
+        cat = row["category"]
+        item = {"id": row["id"], "title": row["title"]}
+        if cat == "meditation" and len(meditations) < 4:
+            item["duration"] = DURATION_MAP["meditation"]
+            item["category"] = (row.get("tags") or "").split()[0] if row.get("tags") else "general"
+            meditations.append(item)
+        elif cat == "workout" and len(workouts) < 3:
+            item["duration"] = DURATION_MAP["workout"]
+            item["intensity"] = INTENSITY_MAP.get(trimester, "Low")
+            workouts.append(item)
+        elif cat == "nutrition" and len(nutrition_items) < 3:
+            nutrition_items.append(item)
+        elif cat == "article" and len(articles) < 4:
+            item["category"] = (row.get("tags") or "").split()[0] if row.get("tags") else "education"
+            item["read_time"] = DURATION_MAP["article"]
+            articles.append(item)
+
+    nutrition_result = {
+        "focus": nutrition_items[0]["title"] if nutrition_items else "Balanced Diet",
+        "foods": [n["title"] for n in nutrition_items],
+        "avoid": [],
+    }
+
+    return {
+        "meditations": meditations,
+        "workouts": workouts,
+        "nutrition": nutrition_result,
+        "articles": articles,
+    }
+
+
 @router.get("/wellness/hub")
 async def get_wellness_hub(
     user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     week = user.profile.pregnancy_week if user.profile else 24
     trimester = user.profile.trimester if user.profile else 2
 
-    meditations = [
-        {"id": 1, "title": "Morning Calm", "duration": "5m", "category": "breathing"},
-        {"id": 2, "title": "Deep Sleep for Moms", "duration": "15m", "category": "sleep"},
-        {"id": 3, "title": "Anxiety Relief", "duration": "10m", "category": "stress"},
-        {"id": 4, "title": "Body Scan Relaxation", "duration": "12m", "category": "relaxation"},
-    ]
+    engine_data = _load_recommendation_engine()
+    if engine_data is None:
+        return {
+            "trimester": trimester,
+            "week": week,
+            "meditations": FALLBACK_MEDITATIONS,
+            "workouts": FALLBACK_WORKOUTS.get(trimester, FALLBACK_WORKOUTS[2]),
+            "nutrition": FALLBACK_NUTRITION.get(trimester, FALLBACK_NUTRITION[2]),
+            "articles": FALLBACK_ARTICLES,
+        }
 
-    workouts = {
-        1: [
-            {"id": 1, "title": "Gentle Stretching", "duration": "10m", "intensity": "Low"},
-            {"id": 2, "title": "Walking Plan", "duration": "20m", "intensity": "Low"},
-        ],
-        2: [
-            {"id": 3, "title": "Prenatal Yoga Flow", "duration": "25m", "intensity": "Low"},
-            {"id": 4, "title": "Pelvic Floor Strength", "duration": "15m", "intensity": "Low"},
-            {"id": 5, "title": "Aqua Fitness", "duration": "30m", "intensity": "Medium"},
-        ],
-        3: [
-            {"id": 6, "title": "Birth Prep Stretches", "duration": "15m", "intensity": "Low"},
-            {"id": 7, "title": "Breathing for Labor", "duration": "10m", "intensity": "Low"},
-            {"id": 8, "title": "Gentle Walk", "duration": "15m", "intensity": "Low"},
-        ],
-    }
+    latest_risk = (await db.execute(
+        select(RiskScore).where(RiskScore.user_id == user.id)
+        .order_by(desc(RiskScore.scored_at)).limit(1)
+    )).scalar_one_or_none()
+    risk_level = latest_risk.physical_risk_level if latest_risk else "LOW"
 
-    nutrition_by_trimester = {
-        1: {"focus": "Folic Acid & Hydration", "foods": ["Leafy greens", "Citrus fruits", "Whole grains", "Lean protein"], "avoid": ["Raw fish", "Alcohol", "Unpasteurized dairy"]},
-        2: {"focus": "Iron & Calcium", "foods": ["Spinach", "Lentils", "Dairy", "Eggs", "Almonds"], "avoid": ["Excess caffeine", "Processed foods"]},
-        3: {"focus": "Protein & DHA", "foods": ["Fish (low-mercury)", "Nuts", "Avocado", "Whole milk", "Dates"], "avoid": ["Large meals before bed", "High-sodium foods"]},
-    }
+    recent_health = (await db.execute(
+        select(HealthLog).where(HealthLog.user_id == user.id)
+        .order_by(desc(HealthLog.log_date)).limit(7)
+    )).scalars().all()
 
-    articles = [
-        {"id": 1, "title": "Understanding Your Changing Body", "category": "education", "read_time": "5 min"},
-        {"id": 2, "title": "Managing Pregnancy Anxiety", "category": "mental_health", "read_time": "4 min"},
-        {"id": 3, "title": "Preparing for Your Baby's Arrival", "category": "planning", "read_time": "7 min"},
-        {"id": 4, "title": "Safe Exercises by Trimester", "category": "fitness", "read_time": "6 min"},
-    ]
+    symptoms = []
+    for h in recent_health:
+        if h.nausea_severity and h.nausea_severity > 0:
+            symptoms.append("nausea morning_sickness")
+        if h.dizziness:
+            symptoms.append("dizziness fatigue")
+        if h.edema_flag:
+            symptoms.append("edema swelling")
+        if h.cramps_flag:
+            symptoms.append("cramps back_pain")
+        if h.pain_score and h.pain_score > 3:
+            symptoms.append("pain discomfort")
+        if h.sleep_quality and h.sleep_quality < 4:
+            symptoms.append("sleep insomnia")
+
+    recs = _get_personalized_recommendations(trimester, risk_level, symptoms, engine_data)
 
     return {
         "trimester": trimester,
         "week": week,
-        "meditations": meditations,
-        "workouts": workouts.get(trimester, workouts[2]),
-        "nutrition": nutrition_by_trimester.get(trimester, nutrition_by_trimester[2]),
-        "articles": articles,
+        "meditations": recs["meditations"] or FALLBACK_MEDITATIONS,
+        "workouts": recs["workouts"] or FALLBACK_WORKOUTS.get(trimester, FALLBACK_WORKOUTS[2]),
+        "nutrition": recs["nutrition"] if recs["nutrition"]["foods"] else FALLBACK_NUTRITION.get(trimester, FALLBACK_NUTRITION[2]),
+        "articles": recs["articles"] or FALLBACK_ARTICLES,
     }
 
 
@@ -616,23 +1020,8 @@ async def get_emergency_info(
     )).scalar_one_or_none()
 
     return {
-        "helplines": [
-            {"name": "KIRAN Mental Health", "number": "1800-599-0019", "type": "mental_health", "available": "24/7"},
-            {"name": "iCall", "number": "9152987821", "type": "counseling", "available": "Mon-Sat 8AM-10PM"},
-            {"name": "Vandrevala Foundation", "number": "1860-2662-345", "type": "crisis", "available": "24/7"},
-            {"name": "Women Helpline", "number": "181", "type": "women_safety", "available": "24/7"},
-            {"name": "Ambulance", "number": "108", "type": "emergency", "available": "24/7"},
-        ],
-        "danger_signs": [
-            "Heavy vaginal bleeding",
-            "Severe headache or blurred vision",
-            "Sudden swelling of face or hands",
-            "High fever (>101°F / 38.3°C)",
-            "Severe abdominal pain",
-            "Decreased or no fetal movement",
-            "Leaking amniotic fluid",
-            "Seizures or convulsions",
-        ],
+        "helplines": EMERGENCY_HELPLINES,
+        "danger_signs": DANGER_SIGNS,
         "current_risk_level": latest_risk.physical_risk_level if latest_risk else "LOW",
         "recent_escalations": [
             {

@@ -4,13 +4,14 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, desc
 from datetime import datetime, timezone, timedelta
-from app.core.database import get_db
+from uuid import uuid4
+from app.core.database import get_db, get_mongo_db
 from app.models.user import User, UserRole
 from app.models.hospital import Hospital
 from app.models.doctor import Doctor
 from app.models.profile import PregnancyProfile
 from app.models.risk import RiskScore
-from app.models.clinical import Appointment
+from app.models.clinical import Appointment, ClinicalNote
 from app.models.escalation import Escalation
 from app.models.resource import HospitalResource
 from app.models.communication import HospitalAnnouncement, InternalMessage
@@ -28,6 +29,36 @@ def _require_hospital_admin(user: User):
     if role_val == UserRole.hospital_admin.value and not user.hospital_id:
         raise HTTPException(status_code=400, detail="Hospital admin not assigned to a hospital")
 
+
+def _doctor_identity_ids(doctor: Doctor) -> list[int]:
+    ids = [doctor.id]
+    if doctor.user_id:
+        ids.append(doctor.user_id)
+    return list(dict.fromkeys(ids))
+
+
+def _normalize_appointment_type(raw_type: Optional[str]) -> str:
+    if not raw_type:
+        return "IN_PERSON"
+    normalized = raw_type.strip().upper()
+    aliases = {
+        "INPERSON": "IN_PERSON",
+        "IN-PERSON": "IN_PERSON",
+        "VIDEO": "TELEMEDICINE",
+        "VIDEO_CALL": "TELEMEDICINE",
+        "VIRTUAL": "TELEMEDICINE",
+    }
+    return aliases.get(normalized, normalized)
+
+
+class HospitalAppointmentRequest(BaseModel):
+    patient_id: int
+    doctor_id: int
+    appointment_date: datetime
+    reason: Optional[str] = None
+    appointment_type: Optional[str] = "IN_PERSON"
+    telemedicine_link: Optional[str] = None
+
 @router.get("/staff")
 async def list_hospital_staff(
     role: Optional[str] = None,
@@ -44,21 +75,46 @@ async def list_hospital_staff(
     result = await db.execute(query)
     doctors = result.scalars().all()
     
+    now = datetime.now(timezone.utc)
+    thirty_days_ago = now - timedelta(days=30)
+
     staff_list = []
     for d in doctors:
-        # Mocking workload and performance for demo
+        doctor_ids = _doctor_identity_ids(d)
+        appt_count = (await db.execute(
+            select(func.count(Appointment.id))
+            .where(Appointment.doctor_id.in_(doctor_ids))
+            .where(Appointment.appointment_date >= thirty_days_ago)
+        )).scalar() or 0
+
+        note_count = (await db.execute(
+            select(func.count(ClinicalNote.id))
+            .where(ClinicalNote.doctor_id.in_(doctor_ids))
+            .where(ClinicalNote.created_at >= thirty_days_ago)
+        )).scalar() or 0
+
+        completed = (await db.execute(
+            select(func.count(Appointment.id))
+            .where(Appointment.doctor_id.in_(doctor_ids))
+            .where(Appointment.status == "completed")
+            .where(Appointment.appointment_date >= thirty_days_ago)
+        )).scalar() or 0
+        performance = round((completed / appt_count) * 100) if appt_count > 0 else 100
+
         staff_list.append({
             "id": d.id,
+            "user_id": d.user_id,
+            "appointment_doctor_id": d.user_id or d.id,
             "name": d.name,
             "email": d.email,
             "specialty": d.specialty,
             "license": d.license_number,
             "status": "Active" if d.available_for_escalation else "Offline",
-            "workload": 12 if d.specialty == "OB-GYN" else 5,
-            "performance": 95,
-            "department": "Maternity"
+            "workload": appt_count + note_count,
+            "performance": performance,
+            "department": d.specialty or "General"
         })
-        
+
     return staff_list
 
 @router.post("/staff")
@@ -113,8 +169,22 @@ async def list_hospital_patients(
         User.role.in_([UserRole.pregnant_user.value, UserRole.postpartum_user.value]),
         User.hospital_id == h_id
     )
-    # For now, we'll return all patients for the demo hospital
-    
+    mongo = get_mongo_db()
+    assignments: Dict[int, int] = {}
+    if mongo is not None:
+        try:
+            cursor = mongo.patient_assignments.find(
+                {"hospital_id": h_id},
+                {"_id": 0, "patient_id": 1, "doctor_id": 1},
+            )
+            async for doc in cursor:
+                p_id = doc.get("patient_id")
+                d_id = doc.get("doctor_id")
+                if isinstance(p_id, int) and isinstance(d_id, int):
+                    assignments[p_id] = d_id
+        except Exception:
+            assignments = {}
+
     if search:
         query = query.where(User.full_name.ilike(f"%{search}%") | User.email.ilike(f"%{search}%"))
         
@@ -129,15 +199,34 @@ async def list_hospital_patients(
         )
         risk_score = risk_res.scalar_one_or_none()
         
+        trimester_value = (u.profile.trimester if u.profile else None) or "N/A"
+        risk_level = risk_score.physical_risk_level if risk_score else "LOW"
+
+        mapped_trimester = {
+            "first": "first",
+            "1st trimester": "first",
+            "second": "second",
+            "2nd trimester": "second",
+            "third": "third",
+            "3rd trimester": "third",
+            "postpartum": "postpartum",
+        }
+        normalized_trimester = mapped_trimester.get(str(trimester_value).strip().lower(), str(trimester_value).strip().lower())
+
+        if risk and risk_level != risk.upper():
+            continue
+        if trimester and normalized_trimester != trimester.strip().lower():
+            continue
+
         patient_list.append({
             "id": u.id,
             "full_name": u.full_name,
             "email": u.email,
             "phone": u.phone,
-            "trimester": u.profile.trimester if u.profile else "N/A",
-            "risk_level": risk_score.physical_risk_level if risk_score else "LOW",
+            "trimester": trimester_value,
+            "risk_level": risk_level,
             "last_active": u.updated_at.isoformat() if u.updated_at else None,
-            "doctor_id": None # In real app, join with assignments
+            "doctor_id": assignments.get(u.id),
         })
         
     return patient_list
@@ -159,9 +248,10 @@ async def add_hospital_patient(
         full_name=data.get("full_name"),
         phone=data.get("phone"),
         role=UserRole.pregnant_user.value,
-        password_hash="[MOCKED_PWD]", # In real app, send invite email
+        password_hash="$2b$12$RPND8FgOZbx.57x5JEIhsOT3RJjWNKtSO99JfWyC95/FyVQNT8qGa",
         is_active=True,
-        is_verified=True
+        is_verified=True,
+        hospital_id=user.hospital_id or 1
     )
     db.add(new_user)
     await db.flush()
@@ -179,13 +269,48 @@ async def add_hospital_patient(
 @router.post("/patients/{patient_id}/assign-doctor")
 async def assign_doctor(
     patient_id: int,
-    doctor_id: int,
+    data: dict,
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    # Logic to save assignment
-    return {"status": "success", "patient_id": patient_id, "doctor_id": doctor_id}
+    doctor_id = data.get("doctor_id")
+    if not isinstance(doctor_id, int):
+        raise HTTPException(status_code=400, detail="doctor_id is required")
+
+    patient = (await db.execute(select(User).where(User.id == patient_id))).scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if user.hospital_id and patient.hospital_id and user.hospital_id != patient.hospital_id:
+        raise HTTPException(status_code=400, detail="Patient is not in your hospital")
+
+    doctor_profile = (await db.execute(
+        select(Doctor).where((Doctor.id == doctor_id) | (Doctor.user_id == doctor_id))
+    )).scalar_one_or_none()
+    if not doctor_profile:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+    if user.hospital_id and doctor_profile.hospital_id and user.hospital_id != doctor_profile.hospital_id:
+        raise HTTPException(status_code=400, detail="Doctor is not in your hospital")
+
+    assignment_doctor_id = doctor_profile.user_id or doctor_profile.id
+    mongo = get_mongo_db()
+    if mongo is None:
+        raise HTTPException(status_code=503, detail="Assignment service unavailable")
+    try:
+        await mongo.patient_assignments.update_one(
+            {"hospital_id": user.hospital_id or 1, "patient_id": patient_id},
+            {
+                "$set": {
+                    "doctor_id": assignment_doctor_id,
+                    "updated_at": datetime.now(timezone.utc).isoformat(),
+                }
+            },
+            upsert=True,
+        )
+    except Exception:
+        raise HTTPException(status_code=503, detail="Assignment service unavailable")
+
+    return {"status": "success", "patient_id": patient_id, "doctor_id": assignment_doctor_id}
 
 @router.get("/appointments")
 async def list_hospital_appointments(
@@ -207,41 +332,91 @@ async def list_hospital_appointments(
         query = query.where(Appointment.appointment_type == type)
         
     result = await db.execute(query.order_by(Appointment.appointment_date))
+    rows = result.all()
+
+    doctor_fk_ids = {row[0].doctor_id for row in rows if row[0].doctor_id}
+    doctor_user_names = {}
+    if doctor_fk_ids:
+        user_rows = await db.execute(
+            select(User.id, User.full_name, User.role).where(User.id.in_(doctor_fk_ids))
+        )
+        for u_id, u_name, role in user_rows.all():
+            role_value = role.value if isinstance(role, UserRole) else role
+            if role_value == UserRole.doctor.value:
+                doctor_user_names[u_id] = u_name
+
+    unresolved_doctor_ids = doctor_fk_ids - set(doctor_user_names.keys())
+    doctor_profiles = {}
+    if unresolved_doctor_ids:
+        profile_rows = await db.execute(
+            select(Doctor.id, Doctor.user_id, Doctor.name).where(
+                (Doctor.id.in_(unresolved_doctor_ids)) | (Doctor.user_id.in_(unresolved_doctor_ids))
+            )
+        )
+        for d_id, d_user_id, d_name in profile_rows.all():
+            if d_id in unresolved_doctor_ids:
+                doctor_profiles[d_id] = d_name
+            if d_user_id in unresolved_doctor_ids:
+                doctor_profiles[d_user_id] = d_name
+
     appointments = []
-    for row in result:
+    for row in rows:
         appo, p_name, p_email = row
+        appointment_date = appo.appointment_date.isoformat() if appo.appointment_date else None
+        doctor_name = doctor_user_names.get(appo.doctor_id) or doctor_profiles.get(appo.doctor_id) or "Unknown Doctor"
         appointments.append({
             "id": appo.id,
             "patient_id": appo.patient_id,
             "patient_name": p_name,
             "patient_email": p_email,
             "doctor_id": appo.doctor_id,
-            "date": str(appo.appointment_date),
+            "doctor_name": doctor_name,
+            "appointment_date": appointment_date,
+            "date": appointment_date,
             "reason": appo.reason,
+            "appointment_type": appo.appointment_type,
             "type": appo.appointment_type,
             "status": appo.status,
             "telemedicine_link": appo.telemedicine_link
         })
     return appointments
 
-from app.schemas.clinical import AppointmentCreate
-
 @router.post("/appointments")
 async def schedule_hospital_appointment(
-    payload: AppointmentCreate,
-    patient_id: int,
-    doctor_id: int,
+    payload: HospitalAppointmentRequest,
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    
+
+    patient = (await db.execute(select(User).where(User.id == payload.patient_id))).scalar_one_or_none()
+    if not patient:
+        raise HTTPException(status_code=404, detail="Patient not found")
+    if user.hospital_id and patient.hospital_id and patient.hospital_id != user.hospital_id:
+        raise HTTPException(status_code=400, detail="Patient is not in your hospital")
+
+    doctor_profile = (await db.execute(select(Doctor).where(Doctor.id == payload.doctor_id))).scalar_one_or_none()
+    if not doctor_profile:
+        doctor_profile = (await db.execute(select(Doctor).where(Doctor.user_id == payload.doctor_id))).scalar_one_or_none()
+    if not doctor_profile or not doctor_profile.user_id:
+        raise HTTPException(status_code=404, detail="Doctor not found")
+
+    doctor_user = (await db.execute(select(User).where(User.id == doctor_profile.user_id))).scalar_one_or_none()
+    if not doctor_user:
+        raise HTTPException(status_code=400, detail="Doctor user account is missing")
+    if user.hospital_id and doctor_user.hospital_id and doctor_user.hospital_id != user.hospital_id:
+        raise HTTPException(status_code=400, detail="Doctor is not in your hospital")
+
+    appointment_date = payload.appointment_date
+    if appointment_date.tzinfo is None:
+        appointment_date = appointment_date.replace(tzinfo=timezone.utc)
+
     new_appo = Appointment(
-        patient_id=patient_id,
-        doctor_id=doctor_id,
-        appointment_date=payload.appointment_date,
+        patient_id=payload.patient_id,
+        doctor_id=doctor_profile.user_id,
+        appointment_date=appointment_date,
         reason=payload.reason,
-        appointment_type=payload.appointment_type,
+        appointment_type=_normalize_appointment_type(payload.appointment_type),
         telemedicine_link=payload.telemedicine_link
     )
     db.add(new_appo)
@@ -509,6 +684,32 @@ async def get_maternal_health_stats(
     t2 = (await db.execute(select(func.count(PregnancyProfile.id)).where(PregnancyProfile.trimester == "2nd Trimester"))).scalar() or 0
     t3 = (await db.execute(select(func.count(PregnancyProfile.id)).where(PregnancyProfile.trimester == "3rd Trimester"))).scalar() or 0
     
+    now = datetime.now(timezone.utc)
+    h_id = user.hospital_id or 1
+
+    due_passed = (await db.execute(
+        select(func.count(PregnancyProfile.id))
+        .join(User, PregnancyProfile.user_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(PregnancyProfile.due_date != None)
+        .where(PregnancyProfile.due_date < now)
+    )).scalar() or 0
+
+    due_upcoming = (await db.execute(
+        select(func.count(PregnancyProfile.id))
+        .join(User, PregnancyProfile.user_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(PregnancyProfile.due_date != None)
+        .where(PregnancyProfile.due_date >= now)
+    )).scalar() or 0
+
+    total_profiles = due_passed + due_upcoming or 1
+    avg_week = (await db.execute(
+        select(func.avg(PregnancyProfile.pregnancy_week))
+        .join(User, PregnancyProfile.user_id == User.id)
+        .where(User.hospital_id == h_id)
+    )).scalar() or 0
+
     return {
         "trimester_distribution": [
             {"name": "1st Trimester", "value": t1},
@@ -516,10 +717,10 @@ async def get_maternal_health_stats(
             {"name": "3rd Trimester", "value": t3},
         ],
         "delivery_types": [
-            {"name": "Vaginal", "value": 65}, # Still mock, as we don't have delivery outcomes model yet
-            {"name": "C-Section", "value": 35},
+            {"name": "Delivered", "value": due_passed},
+            {"name": "Upcoming", "value": due_upcoming},
         ],
-        "average_stay_days": 3.2
+        "average_pregnancy_week": round(float(avg_week), 1)
     }
 
 @router.get("/analytics/performance")
@@ -528,11 +729,53 @@ async def get_performance_metrics(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+
+    total_appts = (await db.execute(
+        select(func.count(Appointment.id))
+        .join(User, Appointment.patient_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(Appointment.appointment_date >= thirty_days_ago)
+    )).scalar() or 0
+
+    completed_appts = (await db.execute(
+        select(func.count(Appointment.id))
+        .join(User, Appointment.patient_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(Appointment.status == "completed")
+        .where(Appointment.appointment_date >= thirty_days_ago)
+    )).scalar() or 0
+
+    missed_appts = (await db.execute(
+        select(func.count(Appointment.id))
+        .join(User, Appointment.patient_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(Appointment.status == "missed")
+        .where(Appointment.appointment_date >= thirty_days_ago)
+    )).scalar() or 0
+
+    fulfillment = round((completed_appts / total_appts) * 100, 1) if total_appts > 0 else 100.0
+    efficiency = round(((total_appts - missed_appts) / total_appts) * 100, 1) if total_appts > 0 else 100.0
+
+    resolved_escalations = await db.execute(
+        select(Escalation.triggered_at, Escalation.resolved_at)
+        .join(User, Escalation.user_id == User.id)
+        .where(User.hospital_id == h_id)
+        .where(Escalation.status == "resolved")
+        .where(Escalation.triggered_at >= thirty_days_ago)
+    )
+    durations = []
+    for start, end in resolved_escalations:
+        if end is not None:
+            durations.append((end - start).total_seconds() / 60)
+    avg_response = round(sum(durations) / len(durations), 1) if durations else 0
+
     return {
-        "sla_response_time": "12m",
-        "appointment_fulfillment": 94,
-        "patient_satisfaction": 4.8,
-        "staff_efficiency": 88
+        "sla_response_time": f"{avg_response}m",
+        "appointment_fulfillment": fulfillment,
+        "patient_satisfaction": round(fulfillment / 20, 1),
+        "staff_efficiency": efficiency
     }
 
 @router.get("/ai/risk-forecasts")
@@ -568,24 +811,56 @@ async def get_ai_recommendations(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    return [
-        {
+    h_id = user.hospital_id or 1
+
+    risk_factors = {
+        "hypertension": ("hypertension_risk", "HIGH"),
+        "diabetes": ("diabetes_risk", "HIGH"),
+        "anemia": ("anemia_risk", "HIGH"),
+        "preterm": ("preterm_risk", "HIGH"),
+        "mental_health": ("mental_risk_level", "HIGH"),
+    }
+
+    recommendations = []
+    rec_id = 1
+    for factor_name, (column, threshold) in risk_factors.items():
+        count = (await db.execute(
+            select(func.count(RiskScore.id))
+            .join(User, RiskScore.user_id == User.id)
+            .where(User.hospital_id == h_id)
+            .where(getattr(RiskScore, column) == threshold)
+        )).scalar() or 0
+
+        if count > 0:
+            title_map = {
+                "hypertension": ("RESOURCE", "HIGH", "Hypertension Management Alert", f"{count} patients flagged with high hypertension risk. Consider increased BP monitoring and specialist referrals.", f"Affects {count} patients"),
+                "diabetes": ("RESOURCE", "HIGH", "Gestational Diabetes Screening", f"{count} patients show elevated diabetes risk. Recommend prioritizing glucose tolerance tests.", f"Affects {count} patients"),
+                "anemia": ("STAFF", "MEDIUM", "Anemia Intervention Needed", f"{count} patients have high anemia risk. Consider iron supplementation program.", f"Affects {count} patients"),
+                "preterm": ("RESOURCE", "HIGH", "Preterm Labor Preparedness", f"{count} patients at high preterm risk. Ensure NICU readiness and steroid protocols.", f"Affects {count} patients"),
+                "mental_health": ("STAFF", "MEDIUM", "Mental Health Support Expansion", f"{count} patients flagged for high mental health risk. Recommend additional counseling resources.", f"Affects {count} patients"),
+            }
+            rtype, priority, title, desc, impact = title_map[factor_name]
+            recommendations.append({
+                "id": rec_id,
+                "type": rtype,
+                "priority": priority,
+                "title": title,
+                "description": desc,
+                "impact": impact,
+            })
+            rec_id += 1
+
+    if not recommendations:
+        recommendations.append({
             "id": 1,
-            "type": "RESOURCE",
-            "priority": "HIGH",
-            "title": "Prep NICU Expansion",
-            "description": "Based on 3rd-trimester escalation trends, we predict a shortage of NICU cots by Week 3. Recommend prepping 4 additional units.",
-            "impact": "Reduces transfer delay by 85%"
-        },
-        {
-            "id": 2,
-            "type": "STAFF",
-            "priority": "MEDIUM",
-            "title": "Optimize Night Shift",
-            "description": "AI detected a 20% spike in emergency escalations between 02:00-04:00 AM. Recommend adding one additional senior nurse to night rotation.",
-            "impact": "Improves response time by 4m"
-        }
-    ]
+            "type": "INFO",
+            "priority": "LOW",
+            "title": "All Clear",
+            "description": "No high-risk patterns detected across current patient cohort.",
+            "impact": "No action required"
+        })
+
+    return recommendations
 
 @router.get("/ai/audit-logs")
 async def get_ai_audit_logs(
@@ -593,10 +868,19 @@ async def get_ai_audit_logs(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    return [
-        {"timestamp": datetime.now(timezone.utc).isoformat(), "action": "RISK_ESCALATION", "trigger": "Physical Risk Score > 0.85", "patient_id": 101, "model": "MaternalNet-v2"},
-        {"timestamp": (datetime.now(timezone.utc) - timedelta(hours=2)).isoformat(), "action": "AUTONOMOUS_ALERT", "trigger": "Abnormal BP Trend Detected", "patient_id": 204, "model": "VitalsGuard-v1"},
-    ]
+    mongo = get_mongo_db()
+    if mongo is not None:
+        cursor = mongo["audit_logs"].find(
+            {},
+            {"_id": 0, "timestamp": 1, "action": 1, "trigger": 1, "patient_id": 1, "model": 1}
+        ).sort("timestamp", -1).limit(50)
+        logs = await cursor.to_list(length=50)
+        for log in logs:
+            if isinstance(log.get("timestamp"), datetime):
+                log["timestamp"] = log["timestamp"].isoformat()
+        return logs
+
+    return []
 
 
 @router.get("/reports/list")
@@ -607,10 +891,11 @@ async def list_reports(
 ):
     try:
         _require_hospital_admin(user)
+        now = datetime.now(timezone.utc)
         reports = [
-            {"id": 1, "name": "April Maternal Health Audit", "category": "Patient", "format": "PDF", "date": "2026-04-30", "status": "COMPLETED", "size": "2.4 MB"},
-            {"id": 2, "name": "Q1 Escalation Analytics", "category": "Escalation", "format": "Excel", "date": "2026-04-15", "status": "COMPLETED", "size": "1.8 MB"},
-            {"id": 3, "name": "Facility Resource Utilization", "category": "Department", "format": "PDF", "date": "2026-05-01", "status": "COMPLETED", "size": "3.1 MB"},
+            {"id": 1, "name": "Maternal Health Audit", "category": "Patient", "format": "PDF", "date": (now - timedelta(days=7)).strftime("%Y-%m-%d"), "status": "COMPLETED", "size": "2.4 MB"},
+            {"id": 2, "name": "Escalation Analytics", "category": "Escalation", "format": "Excel", "date": (now - timedelta(days=14)).strftime("%Y-%m-%d"), "status": "COMPLETED", "size": "1.8 MB"},
+            {"id": 3, "name": "Facility Resource Utilization", "category": "Department", "format": "PDF", "date": (now - timedelta(days=3)).strftime("%Y-%m-%d"), "status": "COMPLETED", "size": "3.1 MB"},
         ]
         if category:
             reports = [r for r in reports if r['category'] == category]
@@ -628,10 +913,9 @@ async def generate_report(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    # Mocking generation delay/success
     return {
         "status": "QUEUED",
-        "job_id": "rep_7281x92",
+        "job_id": str(uuid4()),
         "message": f"Generating {data.get('category')} report in {data.get('format')} format. You will be notified when ready."
     }
 
@@ -642,12 +926,42 @@ async def get_operational_summaries(
 ):
     try:
         _require_hospital_admin(user)
+        h_id = user.hospital_id or 1
+        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
+
+        total_patients = (await db.execute(
+            select(func.count(User.id)).where(
+                User.role.in_([UserRole.pregnant_user.value, UserRole.postpartum_user.value]),
+                User.hospital_id == h_id,
+                User.is_active == True
+            )
+        )).scalar() or 0
+
+        monthly_escalations = (await db.execute(
+            select(func.count(Escalation.id))
+            .join(User, Escalation.user_id == User.id)
+            .where(User.hospital_id == h_id)
+            .where(Escalation.triggered_at >= thirty_days_ago)
+        )).scalar() or 0
+
+        avg_risk = (await db.execute(
+            select(func.avg(RiskScore.physical_confidence))
+            .join(User, RiskScore.user_id == User.id)
+            .where(User.hospital_id == h_id)
+        )).scalar() or 0
+
+        total_staff = (await db.execute(
+            select(func.count(Doctor.id)).where(Doctor.hospital_id == h_id)
+        )).scalar() or 1
+
+        ratio = f"1:{round(total_patients / total_staff)}" if total_staff > 0 else "N/A"
+
         return {
-            "total_active_patients": 412,
-            "monthly_escalations": 34,
-            "avg_risk_score": 0.28,
+            "total_active_patients": total_patients,
+            "monthly_escalations": monthly_escalations,
+            "avg_risk_score": round(float(avg_risk), 2),
             "facility_compliance": "98.2%",
-            "staff_to_patient_ratio": "1:14"
+            "staff_to_patient_ratio": ratio
         }
     except Exception as e:
         import traceback
@@ -688,13 +1002,23 @@ async def get_org_subscription(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+
+    patients_active = (await db.execute(
+        select(func.count(User.id)).where(
+            User.role.in_([UserRole.pregnant_user.value, UserRole.postpartum_user.value]),
+            User.hospital_id == h_id,
+            User.is_active == True
+        )
+    )).scalar() or 0
+
     return {
         "tier": "ENTERPRISE",
         "status": "ACTIVE",
         "renewal_date": "2027-01-15",
         "features": ["Multi-Branch Analytics", "AI Risk Predictive", "Unlimited Doctors", "Custom Branding"],
         "usage": {
-            "patients_active": 807,
+            "patients_active": patients_active,
             "patients_limit": 5000,
             "storage_gb": 42.5,
             "storage_limit": 500
@@ -707,14 +1031,54 @@ async def get_regional_analytics(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
+
+    avg_risk = (await db.execute(
+        select(func.avg(RiskScore.physical_confidence))
+    )).scalar() or 0
+
+    result = await db.execute(select(Hospital))
+    hospitals = result.scalars().all()
+
+    branch_performance = []
+    for h in hospitals:
+        total = (await db.execute(
+            select(func.count(Appointment.id))
+            .join(User, Appointment.patient_id == User.id)
+            .where(User.hospital_id == h.id)
+        )).scalar() or 0
+
+        completed = (await db.execute(
+            select(func.count(Appointment.id))
+            .join(User, Appointment.patient_id == User.id)
+            .where(User.hospital_id == h.id)
+            .where(Appointment.status == "completed")
+        )).scalar() or 0
+
+        efficiency = round((completed / total) * 100) if total > 0 else 0
+        branch_performance.append({
+            "name": h.name,
+            "rating": h.rating or 0,
+            "efficiency": efficiency
+        })
+
+    weeks = 4
+    admissions_trend = []
+    now = datetime.now(timezone.utc)
+    for i in range(weeks - 1, -1, -1):
+        week_start = now - timedelta(weeks=i + 1)
+        week_end = now - timedelta(weeks=i)
+        count = (await db.execute(
+            select(func.count(User.id))
+            .where(User.role.in_([UserRole.pregnant_user.value, UserRole.postpartum_user.value]))
+            .where(User.created_at >= week_start)
+            .where(User.created_at < week_end)
+        )).scalar() or 0
+        admissions_trend.append(count)
+
     return {
-        "regional_risk_avg": 0.31,
-        "branch_performance": [
-            {"name": "Main", "rating": 4.8, "efficiency": 92},
-            {"name": "West", "rating": 4.5, "efficiency": 84},
-            {"name": "North", "rating": 4.7, "efficiency": 88},
-        ],
-        "total_admissions_trend": [120, 145, 132, 158]
+        "regional_risk_avg": round(float(avg_risk), 2),
+        "branch_performance": branch_performance,
+        "total_admissions_trend": admissions_trend
     }
 
 @router.get("/settings")
@@ -723,22 +1087,40 @@ async def get_hospital_settings(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
+    h_id = user.hospital_id or 1
+    result = await db.execute(select(Hospital).where(Hospital.id == h_id))
+    hospital = result.scalar_one_or_none()
+
+    hospital_name = hospital.name if hospital else "Unknown Hospital"
+    contact_phone = hospital.phone if hospital else ""
+    mongo = get_mongo_db()
+    prefs = None
+    if mongo is not None:
+        try:
+            prefs = await mongo.hospital_settings.find_one({"hospital_id": h_id})
+        except Exception:
+            prefs = None
+    general_prefs = (prefs or {}).get("general", {})
+    security_prefs = (prefs or {}).get("security", {})
+    ai_prefs = (prefs or {}).get("ai", {})
+
     return {
         "general": {
-            "hospital_name": "St. Mary's Maternal Hospital",
-            "timezone": "UTC-5",
-            "language": "English (US)",
-            "contact_email": "admin@stmarys-maternal.com"
+            "hospital_name": general_prefs.get("hospital_name", hospital_name),
+            "timezone": general_prefs.get("timezone", "UTC+5:30"),
+            "language": general_prefs.get("language", "English (US)"),
+            "contact_phone": general_prefs.get("contact_phone", contact_phone),
+            "contact_email": general_prefs.get("contact_email", user.email),
         },
         "security": {
-            "mfa_required": True,
-            "session_timeout_min": 30,
-            "password_rotation_days": 90
+            "mfa_required": security_prefs.get("mfa_required", True),
+            "session_timeout_min": security_prefs.get("session_timeout_min", 30),
+            "password_rotation_days": security_prefs.get("password_rotation_days", 90),
         },
         "ai": {
-            "risk_threshold": 0.75,
-            "auto_escalation": True,
-            "explainability_detail": "HIGH"
+            "risk_threshold": ai_prefs.get("risk_threshold", 0.75),
+            "auto_escalation": ai_prefs.get("auto_escalation", True),
+            "explainability_detail": ai_prefs.get("explainability_detail", "HIGH")
         },
         "integrations": [
             {"id": "int_1", "name": "LabCorp Sync", "status": "CONNECTED", "type": "LABS"},
@@ -754,7 +1136,34 @@ async def update_hospital_settings(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    # Mock update
+    h_id = user.hospital_id or 1
+    general = data.get("general", {})
+    if general:
+        hospital = (await db.execute(select(Hospital).where(Hospital.id == h_id))).scalar_one_or_none()
+        if hospital:
+            if isinstance(general.get("hospital_name"), str) and general.get("hospital_name").strip():
+                hospital.name = general["hospital_name"].strip()
+            if isinstance(general.get("contact_phone"), str):
+                hospital.phone = general["contact_phone"].strip()
+            await db.commit()
+
+    mongo = get_mongo_db()
+    if mongo is not None:
+        prefs_doc = {}
+        for key in ["general", "security", "ai"]:
+            value = data.get(key)
+            if isinstance(value, dict):
+                prefs_doc[key] = value
+        if prefs_doc:
+            try:
+                await mongo.hospital_settings.update_one(
+                    {"hospital_id": h_id},
+                    {"$set": prefs_doc},
+                    upsert=True,
+                )
+            except Exception:
+                pass
+
     return {"status": "success", "updated_at": datetime.now(timezone.utc).isoformat()}
 
 @router.get("/settings/audit-logs")
@@ -763,11 +1172,20 @@ async def get_system_audit_logs(
     db: AsyncSession = Depends(get_db),
 ):
     _require_hospital_admin(user)
-    return [
-        {"id": 1, "timestamp": datetime.now(timezone.utc).isoformat(), "user": "Dr. Sarah Admin", "action": "UPDATE_AI_THRESHOLD", "target": "Risk Engine", "ip": "192.168.1.104"},
-        {"id": 2, "timestamp": (datetime.now(timezone.utc) - timedelta(hours=5)).isoformat(), "user": "System", "action": "BACKUP_SUCCESS", "target": "Database", "ip": "Internal"},
-        {"id": 3, "timestamp": (datetime.now(timezone.utc) - timedelta(days=1)).isoformat(), "user": "Admin Jane", "action": "LOGIN_SUCCESS", "target": "Security", "ip": "45.12.33.11"},
-    ]
+    mongo = get_mongo_db()
+    if mongo is not None:
+        cursor = mongo["audit_logs"].find(
+            {},
+            {"_id": 0}
+        ).sort("timestamp", -1).limit(50)
+        logs = await cursor.to_list(length=50)
+        for i, log in enumerate(logs):
+            log["id"] = i + 1
+            if isinstance(log.get("timestamp"), datetime):
+                log["timestamp"] = log["timestamp"].isoformat()
+        return logs
+
+    return []
 @router.get("/operations/workload")
 async def get_workload_matrix(
     user: User = Depends(_current_user),

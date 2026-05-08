@@ -1,4 +1,5 @@
 import React from 'react';
+import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   LayoutDashboard, Users, ShieldAlert, Calendar, Stethoscope,
@@ -12,37 +13,28 @@ import {
 import { cn } from '../utils/helpers';
 import { hospitalAdminService } from '../services/endpoints';
 
-const riskData = [
-  { name: 'Week 1', high: 4, medium: 12, low: 45 },
-  { name: 'Week 2', high: 7, medium: 15, low: 42 },
-  { name: 'Week 3', high: 3, medium: 18, low: 48 },
-  { name: 'Week 4', high: 5, medium: 10, low: 52 },
-];
-
-const deptData = [
-  { name: 'OBGYN', count: 85, color: '#ec4899' },
-  { name: 'NICU', count: 12, color: '#8b5cf6' },
-  { name: 'Postpartum', count: 45, color: '#3b82f6' },
-  { name: 'Emergency', count: 8, color: '#ef4444' },
-];
-
 export default function HospitalAdminDashboard() {
+  const navigate = useNavigate();
   const [stats, setStats] = React.useState<any>(null);
   const [riskTrends, setRiskTrends] = React.useState<any>([]);
   const [deptLoad, setDeptLoad] = React.useState<any>([]);
+  const [escalations, setEscalations] = React.useState<any[]>([]);
+  const [searchText, setSearchText] = React.useState('');
   const [loading, setLoading] = React.useState(true);
 
   React.useEffect(() => {
     const fetchData = async () => {
       try {
-        const [statsRes, trendsRes, loadRes] = await Promise.all([
+        const [statsRes, trendsRes, loadRes, escRes] = await Promise.all([
           hospitalAdminService.getStats(),
           hospitalAdminService.getRiskTrends(),
-          hospitalAdminService.getDeptLoad()
+          hospitalAdminService.getDeptLoad(),
+          hospitalAdminService.listEscalations({ status: 'pending' }),
         ]);
         setStats(statsRes.data);
         setRiskTrends(trendsRes.data);
         setDeptLoad(loadRes.data);
+        setEscalations(escRes.data || []);
       } catch (error) {
         console.error("Failed to fetch hospital admin data", error);
       } finally {
@@ -69,14 +61,22 @@ export default function HospitalAdminDashboard() {
           <p className="text-sm text-gray-500">Live operational overview for St. Mary's Maternal Wing</p>
         </div>
         <div className="flex items-center gap-3">
-          <div className="relative">
+          <form
+            className="relative"
+            onSubmit={(e) => {
+              e.preventDefault();
+              navigate('/hospital-admin/patients');
+            }}
+          >
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input 
               type="text" 
+              value={searchText}
+              onChange={(e) => setSearchText(e.target.value)}
               placeholder="Search patients, doctors..." 
               className="pl-9 pr-4 py-2 bg-white border border-gray-100 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-primary-500/20 w-64"
             />
-          </div>
+          </form>
           <button className="p-2 bg-red-50 text-red-600 rounded-xl hover:bg-red-100 transition-colors relative">
             <Bell className="w-5 h-5" />
             <span className="absolute top-1 right-1 w-2 h-2 bg-red-500 rounded-full border-2 border-white"></span>
@@ -104,7 +104,7 @@ export default function HospitalAdminDashboard() {
         />
         <KPICard 
           title="Doctors Online" 
-          value={`${stats?.doctors_online || 0}/15`} 
+          value={`${stats?.doctors_online || 0}`} 
           change="Live" 
           trend="neutral" 
           icon={Stethoscope} 
@@ -134,7 +134,7 @@ export default function HospitalAdminDashboard() {
           </div>
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
-              <AreaChart data={riskTrends.length > 0 ? riskTrends : riskData}>
+              <AreaChart data={riskTrends}>
                 <defs>
                   <linearGradient id="colorHigh" x1="0" y1="0" x2="0" y2="1">
                     <stop offset="5%" stopColor="#ef4444" stopOpacity={0.1}/>
@@ -159,26 +159,23 @@ export default function HospitalAdminDashboard() {
             <Activity className="w-4 h-4 text-red-500" /> Emergency Alerts
           </h3>
           <div className="space-y-3">
-            <AlertItem 
-              patient="Sarah Jenkins" 
-              reason="BP Critical (165/105)" 
-              time="2m ago" 
-              severity="urgent"
-            />
-            <AlertItem 
-              patient="Maria Garcia" 
-              reason="Fetal movement low" 
-              time="15m ago" 
-              severity="high"
-            />
-            <AlertItem 
-              patient="Emma Wilson" 
-              reason="Preterm contraction risk" 
-              time="1h ago" 
-              severity="medium"
-            />
+            {escalations.slice(0, 3).map((esc) => (
+              <AlertItem
+                key={esc.id}
+                patient={esc.patient_name || `Patient #${esc.user_id}`}
+                reason={esc.reason || esc.risk_type || 'Risk escalation'}
+                time={new Date(esc.triggered_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                severity={String(esc.risk_level).toUpperCase() === 'HIGH' ? 'urgent' : 'high'}
+              />
+            ))}
+            {escalations.length === 0 && (
+              <p className="text-sm text-gray-500">No active emergency alerts.</p>
+            )}
           </div>
-          <button className="w-full mt-4 py-2 text-sm text-primary-600 font-medium hover:bg-primary-50 rounded-lg transition-colors">
+          <button
+            onClick={() => navigate('/hospital-admin/escalations')}
+            className="w-full mt-4 py-2 text-sm text-primary-600 font-medium hover:bg-primary-50 rounded-lg transition-colors"
+          >
             View All Escalations
           </button>
         </div>
@@ -193,13 +190,13 @@ export default function HospitalAdminDashboard() {
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
-                    data={deptLoad.length > 0 ? deptLoad : deptData}
+                    data={deptLoad}
                     innerRadius={60}
                     outerRadius={80}
                     paddingAngle={5}
                     dataKey="count"
                   >
-                    {(deptLoad.length > 0 ? deptLoad : deptData).map((entry: any, index: number) => (
+                    {deptLoad.map((entry: any, index: number) => (
                       <Cell key={`cell-${index}`} fill={entry.color} />
                     ))}
                   </Pie>
@@ -208,7 +205,7 @@ export default function HospitalAdminDashboard() {
               </ResponsiveContainer>
             </div>
             <div className="w-1/2 space-y-3">
-              {(deptLoad.length > 0 ? deptLoad : deptData).map((dept: any) => (
+              {deptLoad.map((dept: any) => (
                 <div key={dept.name} className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <div className="w-2 h-2 rounded-full" style={{ backgroundColor: dept.color }} />
@@ -230,13 +227,15 @@ export default function HospitalAdminDashboard() {
               <h3 className="font-bold">AI Administrative Copilot</h3>
             </div>
             <p className="text-primary-100 text-sm mb-6">
-              "Based on current trends, OBGYN patient load is expected to increase by 15% next week. Recommend opening 2 additional recovery beds."
+              {stats?.pending_escalations
+                ? `${stats.pending_escalations} escalations are currently pending. Prioritize rapid triage and staffing coverage in high-risk units.`
+                : 'No pending escalations currently. Maintain routine monitoring and staffing balance.'}
             </p>
             <div className="grid grid-cols-2 gap-3">
-              <AdminAction icon={Plus} label="Add Patient" />
-              <AdminAction icon={Calendar} label="Schedule Staff" />
-              <AdminAction icon={Building2} label="Manage Beds" />
-              <AdminAction icon={Clock} label="Wait Times" />
+              <AdminAction icon={Plus} label="Add Patient" onClick={() => navigate('/hospital-admin/patients')} />
+              <AdminAction icon={Calendar} label="Appointments" onClick={() => navigate('/hospital-admin/appointments')} />
+              <AdminAction icon={Building2} label="Resources" onClick={() => navigate('/hospital-admin/resources')} />
+              <AdminAction icon={Clock} label="Staff" onClick={() => navigate('/hospital-admin/staff')} />
             </div>
           </div>
         </div>
@@ -295,9 +294,9 @@ function AlertItem({ patient, reason, time, severity }: any) {
   );
 }
 
-function AdminAction({ icon: Icon, label }: any) {
+function AdminAction({ icon: Icon, label, onClick }: any) {
   return (
-    <button className="flex items-center gap-2 w-full p-2.5 rounded-xl bg-white/10 hover:bg-white/20 transition-colors border border-white/5 text-left">
+    <button onClick={onClick} className="flex items-center gap-2 w-full p-2.5 rounded-xl bg-white/10 hover:bg-white/20 transition-colors border border-white/5 text-left">
       <Icon className="w-4 h-4 text-primary-300" />
       <span className="text-xs font-medium">{label}</span>
     </button>

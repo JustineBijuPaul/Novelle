@@ -42,6 +42,29 @@ export default function HospitalAdminResources() {
     "Bed Management", "ICU/NICU", "Medical Equipment", 
     "Room Allocation", "Emergency Resources"
   ];
+  const categoryMap: Record<string, string[]> = {
+    "Bed Management": ["BEDS"],
+    "ICU/NICU": ["ICU", "NICU"],
+    "Medical Equipment": ["EQUIPMENT"],
+    "Room Allocation": ["BEDS", "ROOMS"],
+    "Emergency Resources": ["EMERGENCY"],
+  };
+  const filteredResources = React.useMemo(() => {
+    const allowed = categoryMap[activeTab];
+    if (!allowed) return resources;
+    return resources.filter((res) => allowed.includes(String(res.category).toUpperCase()));
+  }, [resources, activeTab]);
+
+  const totalUnits = React.useMemo(() => resources.reduce((sum, r) => sum + (r.total || 0), 0), [resources]);
+  const totalAvailable = React.useMemo(() => resources.reduce((sum, r) => sum + (r.available || 0), 0), [resources]);
+  const nicuUnits = React.useMemo(
+    () => resources.filter((r) => ['NICU', 'ICU'].includes(String(r.category).toUpperCase())).reduce((sum, r) => sum + (r.total || 0), 0),
+    [resources],
+  );
+  const criticalCount = React.useMemo(
+    () => resources.filter((r) => String(r.status).toUpperCase() === 'CRITICAL' || (r.total > 0 && (r.available / r.total) <= 0.1)).length,
+    [resources],
+  );
 
   const getStatusColor = (avail: number, total: number) => {
     const ratio = avail / total;
@@ -71,10 +94,10 @@ export default function HospitalAdminResources() {
       {/* Critical Status */}
       <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
         {[
-          { label: 'Total Beds', value: '124', sub: '88% Occupied', icon: Bed, color: 'text-primary-600', bg: 'bg-primary-50' },
-          { label: 'NICU Units', value: '12', sub: '2 Available', icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Ventilators', value: '08', sub: '3 Available', icon: Cpu, color: 'text-purple-600', bg: 'bg-purple-50' },
-          { label: 'Blood Supply', value: 'Critical', sub: 'O- Negative Low', icon: ShieldAlert, color: 'text-red-600', bg: 'bg-red-50' },
+          { label: 'Total Units', value: String(totalUnits), sub: `${Math.max(0, totalUnits - totalAvailable)} Occupied`, icon: Bed, color: 'text-primary-600', bg: 'bg-primary-50' },
+          { label: 'ICU/NICU Units', value: String(nicuUnits), sub: `${resources.filter((r) => ['NICU', 'ICU'].includes(String(r.category).toUpperCase())).reduce((sum, r) => sum + (r.available || 0), 0)} Available`, icon: Activity, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Available Stock', value: String(totalAvailable), sub: 'Across all resources', icon: Cpu, color: 'text-purple-600', bg: 'bg-purple-50' },
+          { label: 'Critical Items', value: String(criticalCount), sub: 'Needs immediate refill', icon: ShieldAlert, color: 'text-red-600', bg: 'bg-red-50' },
         ].map((stat, i) => (
           <div key={i} className="bg-white p-4 rounded-2xl border border-gray-100 flex items-center gap-4">
             <div className={cn("p-3 rounded-xl", stat.bg)}>
@@ -111,17 +134,11 @@ export default function HospitalAdminResources() {
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
         {loading ? (
           <div className="col-span-full py-12 text-center text-gray-500 font-bold">Retrieving resource registry...</div>
-        ) : resources.length === 0 ? (
-          // Mock data for demo if DB is empty
-          [
-            { id: 1, name: 'Maternity Ward A', category: 'BEDS', total: 40, available: 4, unit: 'Beds' },
-            { id: 2, name: 'Labor & Delivery Room', category: 'BEDS', total: 10, available: 2, unit: 'Rooms' },
-            { id: 3, name: 'Neonatal ICU (NICU)', category: 'ICU/NICU', total: 12, available: 1, unit: 'Cots' },
-            { id: 4, name: 'Ventilator G-Series', category: 'EQUIPMENT', total: 8, available: 3, unit: 'Units' },
-            { id: 5, name: 'Patient Monitor Pro', category: 'EQUIPMENT', total: 25, available: 18, unit: 'Units' },
-            { id: 6, name: 'Emergency Oxygen Tank', category: 'EMERGENCY', total: 50, available: 12, unit: 'Tanks' },
-          ].map((res) => (
-            <motion.div 
+        ) : filteredResources.length === 0 ? (
+          <div className="col-span-full py-12 text-center text-gray-500 font-medium">No resources found for this category.</div>
+        ) : (
+          filteredResources.map((res) => (
+             <motion.div 
               key={res.id}
               initial={{ opacity: 0, y: 10 }}
               animate={{ opacity: 1, y: 0 }}
@@ -142,15 +159,15 @@ export default function HospitalAdminResources() {
               <div className="space-y-2">
                 <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-widest">
                   <span>Occupancy</span>
-                  <span>{Math.round(((res.total - res.available) / res.total) * 100)}%</span>
+                  <span>{res.total > 0 ? Math.round(((res.total - res.available) / res.total) * 100) : 0}%</span>
                 </div>
                 <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden border border-gray-100">
                   <div 
                     className={cn(
                       "h-full transition-all duration-500",
-                      ((res.total - res.available) / res.total) > 0.8 ? "bg-red-500" : "bg-primary-500"
+                      res.total > 0 && ((res.total - res.available) / res.total) > 0.8 ? "bg-red-500" : "bg-primary-500"
                     )}
-                    style={{ width: `${((res.total - res.available) / res.total) * 100}%` }}
+                    style={{ width: `${res.total > 0 ? ((res.total - res.available) / res.total) * 100 : 0}%` }}
                   />
                 </div>
               </div>
@@ -163,9 +180,9 @@ export default function HospitalAdminResources() {
                 <div className="flex items-center gap-4 bg-gray-50 p-2 rounded-2xl border border-gray-100">
                   <button 
                     onClick={() => handleUpdateQuantity(res.id, res.available, -1)}
-                    className="p-2 bg-white text-gray-400 hover:text-red-600 rounded-xl shadow-sm transition-all border border-gray-100 disabled:opacity-50"
+                    className="p-2 bg-white text-gray-400 hover:text-red-600 rounded-xl shadow-sm transition-all border border-gray-100"
                   >
-                    <Plus className="w-4 h-4" />
+                    <Minus className="w-4 h-4" />
                   </button>
                   <div className="text-center min-w-[3rem]">
                     <p className="text-[10px] font-black text-gray-400 uppercase">Avail</p>
@@ -175,69 +192,7 @@ export default function HospitalAdminResources() {
                     onClick={() => handleUpdateQuantity(res.id, res.available, 1)}
                     className="p-2 bg-white text-gray-400 hover:text-green-600 rounded-xl shadow-sm transition-all border border-gray-100"
                   >
-                    <Minus className="w-4 h-4" />
-                  </button>
-                </div>
-              </div>
-            </motion.div>
-          ))
-        ) : (
-          resources.map((res) => (
-             <motion.div 
-              key={res.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm space-y-4 hover:border-primary-100 transition-all group"
-            >
-              <div className="flex items-start justify-between">
-                <div className="space-y-1">
-                  <div className="px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded-md inline-block uppercase tracking-wider">
-                    {res.category}
-                  </div>
-                  <h3 className="text-lg font-black text-gray-900">{res.name}</h3>
-                </div>
-                <div className={cn("px-3 py-1 rounded-xl text-[10px] font-black uppercase tracking-widest border", getStatusColor(res.available_quantity, res.total_quantity))}>
-                  {res.available_quantity === 0 ? 'Exhausted' : `${res.available_quantity} Available`}
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <div className="flex justify-between text-xs font-bold text-gray-500 uppercase tracking-widest">
-                  <span>Occupancy</span>
-                  <span>{Math.round(((res.total_quantity - res.available_quantity) / res.total_quantity) * 100)}%</span>
-                </div>
-                <div className="w-full h-2 bg-gray-50 rounded-full overflow-hidden border border-gray-100">
-                  <div 
-                    className={cn(
-                      "h-full transition-all duration-500",
-                      ((res.total_quantity - res.available_quantity) / res.total_quantity) > 0.8 ? "bg-red-500" : "bg-primary-500"
-                    )}
-                    style={{ width: `${((res.total_quantity - res.available_quantity) / res.total_quantity) * 100}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-4">
-                <div className="text-center">
-                  <p className="text-[10px] font-black text-gray-400 uppercase">Total</p>
-                  <p className="text-lg font-black text-gray-900">{res.total_quantity}</p>
-                </div>
-                <div className="flex items-center gap-4 bg-gray-50 p-2 rounded-2xl border border-gray-100">
-                  <button 
-                    onClick={() => handleUpdateQuantity(res.id, res.available_quantity, -1)}
-                    className="p-2 bg-white text-gray-400 hover:text-red-600 rounded-xl shadow-sm transition-all border border-gray-100"
-                  >
                     <Plus className="w-4 h-4" />
-                  </button>
-                  <div className="text-center min-w-[3rem]">
-                    <p className="text-[10px] font-black text-gray-400 uppercase">Avail</p>
-                    <p className="text-sm font-black text-gray-900">{res.available_quantity}</p>
-                  </div>
-                  <button 
-                    onClick={() => handleUpdateQuantity(res.id, res.available_quantity, 1)}
-                    className="p-2 bg-white text-gray-400 hover:text-green-600 rounded-xl shadow-sm transition-all border border-gray-100"
-                  >
-                    <Minus className="w-4 h-4" />
                   </button>
                 </div>
               </div>

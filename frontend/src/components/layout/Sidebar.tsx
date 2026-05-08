@@ -287,8 +287,8 @@ export default function Sidebar() {
           {(user?.role === 'pregnant_user' || user?.role === 'postpartum_user') && (
             <div className="mt-4 space-y-4 pb-20">
               <PregnancyProgressCard week={profile?.pregnancy_week || 24} />
-              <EmergencyStickyButton />
-              <AIAssistantWidget />
+              <EmergencyStickyButton onClick={() => navigate('/patient/emergency-support')} />
+              <AIAssistantWidget onClick={() => navigate('/patient/ai-insights')} />
             </div>
           )}
 
@@ -357,16 +357,19 @@ function PregnancyProgressCard({ week }: { week: number }) {
   );
 }
 
-function EmergencyStickyButton() {
+function EmergencyStickyButton({ onClick }: { onClick?: () => void }) {
   return (
-    <button className="flex items-center justify-center gap-2 w-[calc(100%-24px)] mx-3 mt-4 px-4 py-3 bg-red-50 text-red-600 rounded-xl border border-red-100 font-bold text-sm hover:bg-red-100 transition-colors shadow-sm">
+    <button
+      onClick={onClick}
+      className="flex items-center justify-center gap-2 w-[calc(100%-24px)] mx-3 mt-4 px-4 py-3 bg-red-50 text-red-600 rounded-xl border border-red-100 font-bold text-sm hover:bg-red-100 transition-colors shadow-sm"
+    >
       <ShieldAlert className="w-5 h-5" />
       🚨 Emergency Support
     </button>
   );
 }
 
-function AIAssistantWidget() {
+function AIAssistantWidget({ onClick }: { onClick?: () => void }) {
   return (
     <div className="mx-3 mt-4 p-4 rounded-2xl bg-gray-900 text-white">
       <div className="flex items-center gap-3 mb-3">
@@ -378,7 +381,7 @@ function AIAssistantWidget() {
           <p className="text-xs font-medium">Need help today?</p>
         </div>
       </div>
-      <button className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-[11px] font-bold transition-colors">
+      <button onClick={onClick} className="w-full py-2 bg-white/10 hover:bg-white/20 rounded-lg text-[11px] font-bold transition-colors">
         Ask AI Assistant
       </button>
     </div>

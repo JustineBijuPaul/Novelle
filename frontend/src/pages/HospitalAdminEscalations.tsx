@@ -11,6 +11,8 @@ import { hospitalAdminService } from '../services/endpoints';
 export default function HospitalAdminEscalations() {
   const [activeTab, setActiveTab] = React.useState('Pending');
   const [escalations, setEscalations] = React.useState<any[]>([]);
+  const [staff, setStaff] = React.useState<any[]>([]);
+  const [search, setSearch] = React.useState('');
   const [loading, setLoading] = React.useState(true);
   const [showAssignModal, setShowAssignModal] = React.useState(false);
   const [selectedEsc, setSelectedEsc] = React.useState<any>(null);
@@ -18,11 +20,15 @@ export default function HospitalAdminEscalations() {
   const fetchEscalations = async () => {
     setLoading(true);
     try {
-      const res = await hospitalAdminService.listEscalations({ 
+      const [escRes, staffRes] = await Promise.all([
+        hospitalAdminService.listEscalations({
         status: activeTab.toLowerCase() === 'pending' ? 'pending' : 
                 activeTab.toLowerCase() === 'resolved' ? 'resolved' : ''
-      });
-      setEscalations(res.data);
+        }),
+        hospitalAdminService.listStaff(),
+      ]);
+      setEscalations(escRes.data || []);
+      setStaff(staffRes.data || []);
     } catch (error) {
       console.error("Failed to fetch escalations", error);
     } finally {
@@ -43,7 +49,58 @@ export default function HospitalAdminEscalations() {
     }
   };
 
+  const handleAutoRoute = async (id: number) => {
+    try {
+      await hospitalAdminService.autoRouteEscalation(id);
+      fetchEscalations();
+    } catch (error) {
+      console.error('Failed to auto route escalation', error);
+    }
+  };
+
+  const handleAssignDoctor = async (doctorId: number) => {
+    if (!selectedEsc) return;
+    try {
+      await hospitalAdminService.updateEscalation(selectedEsc.id, { assigned_doctor_id: doctorId });
+      setShowAssignModal(false);
+      setSelectedEsc(null);
+      fetchEscalations();
+    } catch (error) {
+      console.error('Failed to assign doctor', error);
+    }
+  };
+
   const tabs = ["Pending", "Urgent", "Resolved", "Emergency Cases", "Escalation Analytics"];
+  const filteredEscalations = React.useMemo(() => {
+    const query = search.trim().toLowerCase();
+    return escalations.filter((esc) => {
+      const textMatch = !query || [
+        esc.patient_name,
+        esc.risk_type,
+        esc.reason,
+      ].filter(Boolean).some((v) => String(v).toLowerCase().includes(query));
+      if (!textMatch) return false;
+      if (activeTab === 'Urgent') return String(esc.risk_level).toUpperCase() === 'HIGH' && esc.status !== 'resolved';
+      if (activeTab === 'Emergency Cases') {
+        return String(esc.risk_level).toUpperCase() === 'HIGH' && ['MENTAL', 'PHYSICAL', 'FETAL'].includes(String(esc.risk_type).toUpperCase());
+      }
+      return true;
+    });
+  }, [escalations, activeTab, search]);
+
+  const avgResponseMin = React.useMemo(() => {
+    const resolved = escalations.filter((e) => e.status === 'resolved');
+    if (resolved.length === 0) return 0;
+    const mins = resolved.map((e) => {
+      const start = e.triggered_at ? new Date(e.triggered_at).getTime() : 0;
+      const end = e.resolved_at ? new Date(e.resolved_at).getTime() : Date.now();
+      return Math.max(0, (end - start) / 60000);
+    });
+    return Math.round(mins.reduce((a, b) => a + b, 0) / mins.length);
+  }, [escalations]);
+  const resolvedCount = escalations.filter((e) => e.status === 'resolved').length;
+  const resolutionRate = escalations.length ? ((resolvedCount / escalations.length) * 100).toFixed(1) : '0.0';
+  const activeCritical = escalations.filter((e) => e.status !== 'resolved' && String(e.risk_level).toUpperCase() === 'HIGH').length;
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -69,9 +126,9 @@ export default function HospitalAdminEscalations() {
       {/* SLA Monitor */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         {[
-          { label: 'Avg. Response Time', value: '4.2m', sub: 'Target: < 5m', icon: Clock, color: 'text-green-600', bg: 'bg-green-50' },
-          { label: 'Resolution Rate', value: '98.4%', sub: '+2.1% from last week', icon: CheckCircle2, color: 'text-blue-600', bg: 'bg-blue-50' },
-          { label: 'Active Critical', value: '03', sub: 'Immediate Action Required', icon: ShieldAlert, color: 'text-red-600', bg: 'bg-red-50' },
+          { label: 'Avg. Response Time', value: `${avgResponseMin}m`, sub: 'Target: < 30m', icon: Clock, color: 'text-green-600', bg: 'bg-green-50' },
+          { label: 'Resolution Rate', value: `${resolutionRate}%`, sub: `${resolvedCount} resolved`, icon: CheckCircle2, color: 'text-blue-600', bg: 'bg-blue-50' },
+          { label: 'Active Critical', value: String(activeCritical), sub: 'Immediate Action Required', icon: ShieldAlert, color: 'text-red-600', bg: 'bg-red-50' },
         ].map((stat, i) => (
           <div key={i} className="bg-white p-5 rounded-2xl border border-gray-100 flex items-center gap-5">
             <div className={cn("p-4 rounded-2xl", stat.bg)}>
@@ -113,6 +170,8 @@ export default function HospitalAdminEscalations() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input 
               type="text" 
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search by patient or risk type..."
               className="w-full pl-10 pr-4 py-2.5 bg-white border border-gray-200 rounded-xl text-sm focus:ring-2 focus:ring-red-500/10 transition-all"
             />
@@ -143,12 +202,12 @@ export default function HospitalAdminEscalations() {
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500 font-bold">Retrieving alerts...</td>
                 </tr>
-              ) : escalations.length === 0 ? (
+              ) : filteredEscalations.length === 0 ? (
                 <tr>
                   <td colSpan={5} className="px-6 py-12 text-center text-gray-500 font-medium">All systems normal. No active escalations found.</td>
                 </tr>
               ) : (
-                escalations.map((esc) => (
+                filteredEscalations.map((esc) => (
                   <tr key={esc.id} className="hover:bg-gray-50/50 transition-colors group">
                     <td className="px-6 py-4">
                       <div className="flex items-center gap-4">
@@ -198,12 +257,31 @@ export default function HospitalAdminEscalations() {
                     </td>
                     <td className="px-6 py-4 text-right">
                       <div className="flex items-center justify-end gap-2">
-                        <button 
-                          onClick={() => handleResolve(esc.id)}
-                          className="px-4 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-50 transition-all"
-                        >
-                          Resolve
-                        </button>
+                          {esc.status !== 'resolved' && (
+                            <>
+                              <button
+                                onClick={() => {
+                                  setSelectedEsc(esc);
+                                  setShowAssignModal(true);
+                                }}
+                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-50 transition-all"
+                              >
+                                Assign
+                              </button>
+                              <button
+                                onClick={() => handleAutoRoute(esc.id)}
+                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-50 transition-all"
+                              >
+                                Auto-Route
+                              </button>
+                              <button
+                                onClick={() => handleResolve(esc.id)}
+                                className="px-3 py-2 bg-white border border-gray-200 rounded-xl text-xs font-black text-gray-700 hover:bg-gray-50 transition-all"
+                              >
+                                Resolve
+                              </button>
+                            </>
+                          )}
                         <button className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-xl transition-all">
                           <MoreVertical className="w-4 h-4" />
                         </button>
@@ -231,17 +309,20 @@ export default function HospitalAdminEscalations() {
                 <h3 className="text-xl font-black text-gray-900">Assign Specialist</h3>
                 <button onClick={() => setShowAssignModal(false)}><X className="w-6 h-6 text-gray-400" /></button>
               </div>
-              {/* Specialist List would go here */}
               <div className="space-y-4">
                 <p className="text-sm text-gray-500">Select a clinician to handle this escalation:</p>
                 <div className="grid grid-cols-1 gap-3">
-                  {[1, 2, 3].map(i => (
-                    <button key={i} className="p-4 rounded-2xl border border-gray-100 hover:border-primary-200 hover:bg-primary-50 transition-all flex items-center justify-between group">
+                  {staff.map((member) => (
+                    <button
+                      key={member.id}
+                      onClick={() => handleAssignDoctor(Number(member.appointment_doctor_id || member.user_id || member.id))}
+                      className="p-4 rounded-2xl border border-gray-100 hover:border-primary-200 hover:bg-primary-50 transition-all flex items-center justify-between group"
+                    >
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-full bg-gray-100 flex items-center justify-center font-bold text-gray-500">DW</div>
                         <div className="text-left">
-                          <p className="text-sm font-bold text-gray-900">Dr. Wilson {i}</p>
-                          <p className="text-[10px] font-bold text-gray-400 uppercase">On-Call Specialist</p>
+                          <p className="text-sm font-bold text-gray-900">{member.name}</p>
+                          <p className="text-[10px] font-bold text-gray-400 uppercase">{member.specialty || 'On-Call Specialist'}</p>
                         </div>
                       </div>
                       <ChevronRight className="w-4 h-4 text-gray-300 group-hover:text-primary-500 transition-all" />

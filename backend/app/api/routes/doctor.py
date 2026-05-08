@@ -29,6 +29,16 @@ from app.api.routes.auth import _current_user
 router = APIRouter(prefix="/doctor", tags=["Doctor Portal"])
 
 
+async def _get_doctor_identity_ids(db: AsyncSession, user: User) -> list[int]:
+    doctor_profile = (
+        await db.execute(select(Doctor).where(Doctor.user_id == user.id))
+    ).scalar_one_or_none()
+    identity_ids = [user.id]
+    if doctor_profile:
+        identity_ids.append(doctor_profile.id)
+    return list(dict.fromkeys(identity_ids))
+
+
 @router.get("/dashboard")
 async def get_dashboard(
     user: User = Depends(_current_user),
@@ -514,9 +524,18 @@ async def list_doctor_appointments(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Appointment).where(Appointment.doctor_id == user.id)
-    if status:
-        query = query.where(Appointment.status == status)
+    doctor_ids = await _get_doctor_identity_ids(db, user)
+
+    query = select(Appointment).where(Appointment.doctor_id.in_(doctor_ids))
+    if status and status != "all":
+        if status == "upcoming":
+            now = datetime.now(timezone.utc)
+            query = query.where(
+                Appointment.appointment_date >= now,
+                Appointment.status.in_(["pending", "confirmed", "scheduled"]),
+            )
+        else:
+            query = query.where(Appointment.status == status)
     query = query.order_by(desc(Appointment.appointment_date))
     result = await db.execute(query)
     appointments = result.scalars().all()
@@ -528,11 +547,14 @@ async def list_doctor_appointments(
             "id": a.id,
             "patient_id": a.patient_id,
             "patient_name": patient.full_name if patient else "Unknown",
+            "appointment_date": a.appointment_date.isoformat() if a.appointment_date else None,
             "date": a.appointment_date.isoformat() if a.appointment_date else None,
             "reason": a.reason,
             "status": a.status,
+            "appointment_type": a.appointment_type,
             "type": a.appointment_type,
             "telemedicine_link": a.telemedicine_link,
+            "doctor_id": a.doctor_id,
         })
     return enriched
 
@@ -544,13 +566,24 @@ async def update_appointment_status(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    result = await db.execute(select(Appointment).where(Appointment.id == appointment_id))
+    normalized_status = (status or "").strip().lower()
+    allowed_statuses = {"pending", "scheduled", "confirmed", "completed", "cancelled", "missed"}
+    if normalized_status not in allowed_statuses:
+        raise HTTPException(status_code=400, detail=f"Unsupported appointment status: {status}")
+
+    doctor_ids = await _get_doctor_identity_ids(db, user)
+    result = await db.execute(
+        select(Appointment).where(
+            Appointment.id == appointment_id,
+            Appointment.doctor_id.in_(doctor_ids),
+        )
+    )
     appo = result.scalar_one_or_none()
     if not appo:
         raise HTTPException(status_code=404, detail="Appointment not found")
-    appo.status = status
+    appo.status = normalized_status
     await db.commit()
-    return {"id": appo.id, "status": status}
+    return {"id": appo.id, "status": appo.status}
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -632,8 +665,9 @@ async def list_all_clinical_notes(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    doctor_ids = await _get_doctor_identity_ids(db, user)
     result = await db.execute(
-        select(ClinicalNote).where(ClinicalNote.doctor_id == user.id)
+        select(ClinicalNote).where(ClinicalNote.doctor_id.in_(doctor_ids))
         .order_by(desc(ClinicalNote.created_at)).limit(limit)
     )
     notes = result.scalars().all()
@@ -663,7 +697,8 @@ async def list_all_prescriptions(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    query = select(Medication).where(Medication.doctor_id == user.id)
+    doctor_ids = await _get_doctor_identity_ids(db, user)
+    query = select(Medication).where(Medication.doctor_id.in_(doctor_ids))
     if active_only:
         query = query.where(Medication.is_active == True)
     query = query.order_by(desc(Medication.created_at))
@@ -697,10 +732,11 @@ async def list_telehealth_sessions(
     user: User = Depends(_current_user),
     db: AsyncSession = Depends(get_db),
 ):
+    doctor_ids = await _get_doctor_identity_ids(db, user)
     result = await db.execute(
         select(Appointment).where(
-            Appointment.doctor_id == user.id,
-            Appointment.appointment_type == "telemedicine",
+            Appointment.doctor_id.in_(doctor_ids),
+            func.lower(Appointment.appointment_type).in_(["telemedicine", "video_call"]),
         ).order_by(desc(Appointment.appointment_date))
     )
     sessions = result.scalars().all()
@@ -809,22 +845,24 @@ async def get_doctor_reports(
     db: AsyncSession = Depends(get_db),
 ):
     """Aggregate stats for the doctor's practice."""
+    doctor_ids = await _get_doctor_identity_ids(db, user)
+
     total_appointments = (await db.execute(
-        select(func.count(Appointment.id)).where(Appointment.doctor_id == user.id)
+        select(func.count(Appointment.id)).where(Appointment.doctor_id.in_(doctor_ids))
     )).scalar() or 0
 
     completed_appointments = (await db.execute(
         select(func.count(Appointment.id)).where(
-            Appointment.doctor_id == user.id, Appointment.status == "completed"
+            Appointment.doctor_id.in_(doctor_ids), Appointment.status == "completed"
         )
     )).scalar() or 0
 
     total_notes = (await db.execute(
-        select(func.count(ClinicalNote.id)).where(ClinicalNote.doctor_id == user.id)
+        select(func.count(ClinicalNote.id)).where(ClinicalNote.doctor_id.in_(doctor_ids))
     )).scalar() or 0
 
     total_prescriptions = (await db.execute(
-        select(func.count(Medication.id)).where(Medication.doctor_id == user.id)
+        select(func.count(Medication.id)).where(Medication.doctor_id.in_(doctor_ids))
     )).scalar() or 0
 
     recent_escalations = (await db.execute(
@@ -856,19 +894,23 @@ async def get_doctor_messages(
     mongo = get_mongo_db()
     messages = []
     if mongo is not None:
-        cursor = mongo.doctor_messages.find(
-            {"$or": [{"sender_id": user.id}, {"receiver_id": user.id}]}
-        ).sort("timestamp", -1).limit(50)
-        async for doc in cursor:
-            messages.append({
-                "id": str(doc.get("_id")),
-                "sender_id": doc.get("sender_id"),
-                "receiver_id": doc.get("receiver_id"),
-                "subject": doc.get("subject", ""),
-                "content": doc.get("content", ""),
-                "is_read": doc.get("is_read", False),
-                "timestamp": doc.get("timestamp", ""),
-            })
+        try:
+            cursor = mongo.doctor_messages.find(
+                {"$or": [{"sender_id": user.id}, {"receiver_id": user.id}]}
+            ).sort("timestamp", -1).limit(50)
+            async for doc in cursor:
+                messages.append({
+                    "id": str(doc.get("_id")),
+                    "sender_id": doc.get("sender_id"),
+                    "receiver_id": doc.get("receiver_id"),
+                    "subject": doc.get("subject", ""),
+                    "content": doc.get("content", ""),
+                    "is_read": doc.get("is_read", False),
+                    "timestamp": doc.get("timestamp", ""),
+                })
+        except Exception:
+            # Graceful degradation when Mongo is unavailable.
+            messages = []
     return messages
 
 
@@ -895,7 +937,10 @@ async def send_doctor_message(
         "is_read": False,
         "timestamp": datetime.now(timezone.utc).isoformat(),
     }
-    await mongo.doctor_messages.insert_one(msg)
+    try:
+        await mongo.doctor_messages.insert_one(msg)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Messaging service unavailable")
     return {"status": "sent", "message": "Message delivered"}
 
 
@@ -912,18 +957,21 @@ async def get_doctor_tasks(
     tasks = []
 
     if mongo is not None:
-        cursor = mongo.doctor_tasks.find({"doctor_id": user.id}).sort("created_at", -1)
-        async for doc in cursor:
-            tasks.append({
-                "id": str(doc.get("_id")),
-                "title": doc.get("title"),
-                "description": doc.get("description", ""),
-                "priority": doc.get("priority", "medium"),
-                "status": doc.get("status", "pending"),
-                "patient_id": doc.get("patient_id"),
-                "due_date": doc.get("due_date"),
-                "created_at": doc.get("created_at"),
-            })
+        try:
+            cursor = mongo.doctor_tasks.find({"doctor_id": user.id}).sort("created_at", -1)
+            async for doc in cursor:
+                tasks.append({
+                    "id": str(doc.get("_id")),
+                    "title": doc.get("title"),
+                    "description": doc.get("description", ""),
+                    "priority": doc.get("priority", "medium"),
+                    "status": doc.get("status", "pending"),
+                    "patient_id": doc.get("patient_id"),
+                    "due_date": doc.get("due_date"),
+                    "created_at": doc.get("created_at"),
+                })
+        except Exception:
+            tasks = []
 
     pending_escalations = (await db.execute(
         select(Escalation).where(Escalation.status == "pending")
@@ -976,7 +1024,10 @@ async def create_doctor_task(
         "due_date": data.due_date,
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
-    result = await mongo.doctor_tasks.insert_one(task)
+    try:
+        result = await mongo.doctor_tasks.insert_one(task)
+    except Exception:
+        raise HTTPException(status_code=503, detail="Task service unavailable")
     return {"id": str(result.inserted_id), "status": "created"}
 
 
@@ -985,16 +1036,41 @@ async def update_task_status(
     task_id: str,
     status: str = Body(..., embed=True),
     user: User = Depends(_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
     mongo = get_mongo_db()
     if mongo is None:
         raise HTTPException(status_code=503, detail="Task service unavailable")
 
+    # Auto-generated escalation tasks are virtual; map completion back to escalation status.
+    if task_id.startswith("esc-"):
+        try:
+            esc_id = int(task_id.split("-", 1)[1])
+        except (ValueError, IndexError):
+            raise HTTPException(status_code=400, detail="Invalid escalation task id")
+        result = await db.execute(select(Escalation).where(Escalation.id == esc_id))
+        esc = result.scalar_one_or_none()
+        if not esc:
+            raise HTTPException(status_code=404, detail="Escalation not found")
+        esc.status = "resolved" if status == "completed" else "pending"
+        if esc.status == "resolved":
+            esc.resolved_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"id": task_id, "status": status}
+
     from bson import ObjectId
-    await mongo.doctor_tasks.update_one(
-        {"_id": ObjectId(task_id), "doctor_id": user.id},
-        {"$set": {"status": status}},
-    )
+    try:
+        obj_id = ObjectId(task_id)
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid task id")
+
+    try:
+        await mongo.doctor_tasks.update_one(
+            {"_id": obj_id, "doctor_id": user.id},
+            {"$set": {"status": status}},
+        )
+    except Exception:
+        raise HTTPException(status_code=503, detail="Task service unavailable")
     return {"id": task_id, "status": status}
 
 
@@ -1014,7 +1090,10 @@ async def get_doctor_settings(
     mongo = get_mongo_db()
     prefs = None
     if mongo is not None:
-        prefs = await mongo.doctor_settings.find_one({"doctor_id": user.id})
+        try:
+            prefs = await mongo.doctor_settings.find_one({"doctor_id": user.id})
+        except Exception:
+            prefs = None
 
     return {
         "profile": {
@@ -1065,10 +1144,14 @@ async def update_doctor_settings(
             if val is not None:
                 prefs_update[field] = val
         if prefs_update:
-            await mongo.doctor_settings.update_one(
-                {"doctor_id": user.id},
-                {"$set": prefs_update},
-                upsert=True,
-            )
+            try:
+                await mongo.doctor_settings.update_one(
+                    {"doctor_id": user.id},
+                    {"$set": prefs_update},
+                    upsert=True,
+                )
+            except Exception:
+                # Do not fail entire settings update when Mongo prefs store is unavailable.
+                pass
 
     return {"status": "updated"}

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../utils/helpers';
 import { hospitalAdminService } from '../services/endpoints';
+import { toast } from 'react-hot-toast';
 
 export default function HospitalAdminCommunication() {
   const [activeTab, setActiveTab] = React.useState('Announcements');
@@ -14,6 +15,11 @@ export default function HospitalAdminCommunication() {
   const [messages, setMessages] = React.useState<any[]>([]);
   const [loading, setLoading] = React.useState(true);
   const [showNewMsgModal, setShowNewMsgModal] = React.useState(false);
+  const [draft, setDraft] = React.useState({
+    title: '',
+    category: 'GENERAL',
+    content: '',
+  });
 
   const fetchCommunication = async () => {
     setLoading(true);
@@ -35,10 +41,38 @@ export default function HospitalAdminCommunication() {
     fetchCommunication();
   }, []);
 
+  const handleSendBroadcast = async () => {
+    if (!draft.title.trim() || !draft.content.trim()) {
+      toast.error('Title and message content are required.');
+      return;
+    }
+    try {
+      await hospitalAdminService.createAnnouncement({
+        title: draft.title.trim(),
+        content: draft.content.trim(),
+        category: draft.category,
+      });
+      toast.success('Broadcast published successfully.');
+      setShowNewMsgModal(false);
+      setDraft({ title: '', category: 'GENERAL', content: '' });
+      fetchCommunication();
+    } catch (error) {
+      console.error('Failed to send broadcast', error);
+      toast.error('Failed to publish broadcast.');
+    }
+  };
+
   const tabs = [
     "Announcements", "Doctor Messages", "Emergency Broadcasts", 
     "Notifications", "Patient Communication"
   ];
+  const visibleAnnouncements = React.useMemo(() => {
+    if (activeTab === 'Announcements') return announcements;
+    if (activeTab === 'Emergency Broadcasts') return announcements.filter((a) => String(a.category).toUpperCase() === 'EMERGENCY');
+    if (activeTab === 'Patient Communication') return announcements.filter((a) => String(a.category).toUpperCase() === 'PATIENT');
+    if (activeTab === 'Doctor Messages') return announcements.filter((a) => String(a.category).toUpperCase() === 'STAFF');
+    return announcements;
+  }, [announcements, activeTab]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -82,13 +116,31 @@ export default function HospitalAdminCommunication() {
         <div className="lg:col-span-2 space-y-4">
           {loading ? (
             <div className="py-20 text-center text-gray-500 font-bold">Synchronizing communication channels...</div>
-          ) : announcements.length === 0 ? (
-            // Mock data for demo
-            [
-              { id: 1, title: 'Weekly Staff Meeting', content: 'Reminder for all HODs regarding the upcoming infrastructure audit on Friday.', category: 'STAFF', time: '2 hours ago', sender: 'Admin Office' },
-              { id: 2, title: 'New COVID Protocols', content: 'Updated safety measures for the maternity ward starting next week.', category: 'GENERAL', time: '5 hours ago', sender: 'Safety Dept' },
-              { id: 3, title: 'NICU Maintenance', content: 'Scheduled power backup testing for NICU Cots on Saturday 02:00 AM.', category: 'EMERGENCY', time: '1 day ago', sender: 'Maintenance' },
-            ].map((ann) => (
+          ) : activeTab === 'Notifications' ? (
+            messages.length === 0 ? (
+              <div className="py-20 text-center text-gray-500 font-medium">No notifications available.</div>
+            ) : (
+              messages.map((msg) => (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, x: -10 }}
+                  animate={{ opacity: 1, x: 0 }}
+                  className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:border-primary-100 transition-all group relative overflow-hidden"
+                >
+                  <div className="space-y-1">
+                    <p className="text-lg font-black text-gray-900">{msg.subject || 'Internal Message'}</p>
+                    <p className="text-sm text-gray-600 leading-relaxed">{msg.content}</p>
+                    <p className="text-[10px] text-gray-400 uppercase font-bold tracking-wider">
+                      {msg.created_at ? new Date(msg.created_at).toLocaleString() : '—'}
+                    </p>
+                  </div>
+                </motion.div>
+              ))
+            )
+          ) : visibleAnnouncements.length === 0 ? (
+            <div className="py-20 text-center text-gray-500 font-medium">No announcements available for this channel.</div>
+          ) : (
+            visibleAnnouncements.map((ann) => (
               <motion.div 
                 key={ann.id}
                 initial={{ opacity: 0, x: -10 }}
@@ -99,9 +151,9 @@ export default function HospitalAdminCommunication() {
                   <div className="flex gap-4">
                     <div className={cn(
                       "p-3 rounded-2xl",
-                      ann.category === 'EMERGENCY' ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-600"
+                      String(ann.category).toUpperCase() === 'EMERGENCY' ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-600"
                     )}>
-                      {ann.category === 'EMERGENCY' ? <ShieldAlert className="w-5 h-5" /> : <Megaphone className="w-5 h-5" />}
+                      {String(ann.category).toUpperCase() === 'EMERGENCY' ? <ShieldAlert className="w-5 h-5" /> : <Megaphone className="w-5 h-5" />}
                     </div>
                     <div className="space-y-1">
                       <div className="flex items-center gap-2">
@@ -120,41 +172,9 @@ export default function HospitalAdminCommunication() {
                     <MoreVertical className="w-5 h-5" />
                   </button>
                 </div>
-                {ann.category === 'EMERGENCY' && (
+                {String(ann.category).toUpperCase() === 'EMERGENCY' && (
                   <div className="absolute top-0 left-0 w-1 h-full bg-red-500" />
                 )}
-              </motion.div>
-            ))
-          ) : (
-            announcements.map((ann) => (
-               <motion.div 
-                key={ann.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                className="bg-white p-6 rounded-3xl border border-gray-100 shadow-sm hover:border-primary-100 transition-all group"
-              >
-                <div className="flex items-start justify-between">
-                  <div className="flex gap-4">
-                    <div className={cn(
-                      "p-3 rounded-2xl",
-                      ann.category === 'EMERGENCY' ? "bg-red-50 text-red-600" : "bg-gray-50 text-gray-600"
-                    )}>
-                      {ann.category === 'EMERGENCY' ? <ShieldAlert className="w-5 h-5" /> : <Megaphone className="w-5 h-5" />}
-                    </div>
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 bg-gray-100 text-gray-500 text-[10px] font-bold rounded-md uppercase tracking-wider">
-                          {ann.category}
-                        </span>
-                         <span className="text-[10px] font-bold text-gray-400 uppercase tracking-widest flex items-center gap-1">
-                          <Clock className="w-3 h-3" /> {new Date(ann.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                        </span>
-                      </div>
-                      <h3 className="text-lg font-black text-gray-900">{ann.title}</h3>
-                      <p className="text-sm text-gray-600 leading-relaxed">{ann.content}</p>
-                    </div>
-                  </div>
-                </div>
               </motion.div>
             ))
           )}
@@ -253,8 +273,10 @@ export default function HospitalAdminCommunication() {
                 <div className="space-y-4">
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Broadcast Title</label>
-                    <input 
-                      type="text" 
+                    <input
+                      type="text"
+                      value={draft.title}
+                      onChange={(e) => setDraft((prev) => ({ ...prev, title: e.target.value }))}
                       placeholder="e.g., Infrastructure Maintenance Notice"
                       className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500/20"
                     />
@@ -262,11 +284,15 @@ export default function HospitalAdminCommunication() {
                   <div className="grid grid-cols-2 gap-4">
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Category</label>
-                      <select className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500/20">
-                        <option>General Announcement</option>
-                        <option>Staff Update</option>
-                        <option>Emergency Broadcast</option>
-                        <option>Patient Notice</option>
+                      <select
+                        value={draft.category}
+                        onChange={(e) => setDraft((prev) => ({ ...prev, category: e.target.value }))}
+                        className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500/20"
+                      >
+                        <option value="GENERAL">General Announcement</option>
+                        <option value="STAFF">Staff Update</option>
+                        <option value="EMERGENCY">Emergency Broadcast</option>
+                        <option value="PATIENT">Patient Notice</option>
                       </select>
                     </div>
                     <div className="space-y-1.5">
@@ -281,8 +307,10 @@ export default function HospitalAdminCommunication() {
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-[10px] font-bold text-gray-400 uppercase tracking-widest px-1">Message Content</label>
-                    <textarea 
+                    <textarea
                       rows={4}
+                      value={draft.content}
+                      onChange={(e) => setDraft((prev) => ({ ...prev, content: e.target.value }))}
                       placeholder="Write your message here..."
                       className="w-full px-4 py-3 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-primary-500/20 resize-none"
                     />
@@ -296,7 +324,10 @@ export default function HospitalAdminCommunication() {
                   >
                     Discard Draft
                   </button>
-                  <button className="flex-2 px-12 py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20">
+                  <button
+                    onClick={handleSendBroadcast}
+                    className="flex-2 px-12 py-3 bg-primary-600 text-white rounded-2xl text-sm font-bold hover:bg-primary-700 transition-all shadow-lg shadow-primary-500/20"
+                  >
                     Send Broadcast Now
                   </button>
                 </div>

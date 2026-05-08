@@ -492,11 +492,17 @@ function AppointmentsView() {
   const [appointments, setAppointments] = useState<any[]>([]);
   const [tab, setTab] = useState<string>('all');
   const [updating, setUpdating] = useState<number | null>(null);
+  const [error, setError] = useState<string | null>(null);
 
   const fetchAppointments = useCallback(async () => {
     try {
+      setError(null);
       const res = await doctorService.listAppointments(tab === 'all' ? undefined : tab);
       setAppointments(res.data || []);
+    } catch (err: any) {
+      const detail = err?.response?.data?.detail;
+      setError(typeof detail === 'string' ? detail : 'Unable to load appointments. Please try again.');
+      setAppointments([]);
     } finally {
       setLoading(false);
     }
@@ -543,6 +549,8 @@ function AppointmentsView() {
 
       {loading ? (
         <SkeletonRows count={4} />
+      ) : error ? (
+        <EmptyState icon={Calendar} message={error} />
       ) : appointments.length === 0 ? (
         <EmptyState icon={Calendar} message={`No ${tab === 'all' ? '' : tab + ' '}appointments found.`} />
       ) : (
@@ -554,7 +562,7 @@ function AppointmentsView() {
                   <div className="flex flex-wrap items-center gap-2">
                     <h4 className="text-sm font-semibold text-slate-900">{apt.patient_name || `Patient #${apt.patient_id}`}</h4>
                     <StatusChip status={apt.status} />
-                    {apt.type && (
+                    {(apt.type || apt.appointment_type) && (
                       <span className="rounded-full bg-slate-100 px-2.5 py-0.5 text-[10px] font-bold uppercase tracking-widest text-slate-500">
                         {apt.type || apt.appointment_type}
                       </span>
@@ -702,6 +710,8 @@ function MonitoringView() {
   const highRiskPatients = data?.high_risk_patients || [];
   const criticalAlerts = data?.critical_alerts || [];
   const summary = data?.summary || {};
+  const monitoredPatients = summary.total_monitored ?? summary.monitored_patients ?? highRiskPatients.length;
+  const stablePatients = summary.stable_count ?? Math.max(0, monitoredPatients - highRiskPatients.length);
 
   return (
     <SectionShell icon={HeartPulse} title="Real-Time Monitoring" subtitle="High-risk patients, critical alerts, and vitals">
@@ -723,9 +733,9 @@ function MonitoringView() {
       {/* Summary stats */}
       {summary && (
         <div className="grid gap-3 sm:grid-cols-3">
-          <MiniStatCard label="Monitored Patients" value={summary.monitored_patients ?? highRiskPatients.length} tone="cyan" />
+          <MiniStatCard label="Monitored Patients" value={monitoredPatients} tone="cyan" />
           <MiniStatCard label="Critical Alerts" value={summary.critical_count ?? criticalAlerts.length} tone="rose" />
-          <MiniStatCard label="Stable" value={summary.stable_count ?? 0} tone="emerald" />
+          <MiniStatCard label="Stable" value={stablePatients} tone="emerald" />
         </div>
       )}
 
@@ -1014,7 +1024,7 @@ function AICopilotView() {
               <div className="space-y-2">
                 {concerns.map((c: any, i: number) => (
                   <div key={i} className="flex items-center justify-between rounded-2xl bg-slate-50 px-4 py-3 ring-1 ring-slate-200">
-                    <span className="text-sm text-slate-700">{typeof c === 'string' ? c : c.concern || c.label}</span>
+                    <span className="text-sm text-slate-700">{typeof c === 'string' ? c : c.concern || c.condition || c.label}</span>
                     {c.count && <span className="rounded-full bg-slate-200 px-2 py-0.5 text-xs font-bold text-slate-600">{c.count}</span>}
                   </div>
                 ))}
@@ -1051,7 +1061,7 @@ function AICopilotView() {
                     <h4 className="text-sm font-semibold text-slate-900">{p.name || p.patient_name}</h4>
                     <RiskPill level={p.risk_level} />
                   </div>
-                  {p.reason && <p className="mt-2 text-xs text-slate-500">{p.reason}</p>}
+                  {(p.reason || p.primary_concern) && <p className="mt-2 text-xs text-slate-500">{p.reason || p.primary_concern}</p>}
                 </div>
               ))}
             </div>
@@ -1083,11 +1093,14 @@ function ReportsView() {
 
   if (loading) return <ViewSkeleton />;
 
+  const escalationResolved = data?.escalations?.resolved ?? 0;
+  const escalationTotal = data?.escalations?.total ?? 0;
+  const escalationResolutionRate = escalationTotal > 0 ? `${Math.round((escalationResolved / escalationTotal) * 100)}%` : '—';
   const stats = [
     { label: 'Total Appointments', value: data?.appointments?.total ?? data?.appointments ?? 0, icon: Calendar, gradient: 'from-violet-500 to-fuchsia-500' },
     { label: 'Clinical Notes', value: data?.clinical_notes?.total ?? data?.clinical_notes ?? 0, icon: FileText, gradient: 'from-cyan-500 to-blue-500' },
     { label: 'Prescriptions', value: data?.prescriptions?.total ?? data?.prescriptions ?? 0, icon: Pill, gradient: 'from-emerald-500 to-teal-500' },
-    { label: 'Escalation Resolution', value: data?.escalations?.resolution_rate ? `${data.escalations.resolution_rate}%` : (data?.escalations ?? '—'), icon: ShieldAlert, gradient: 'from-amber-500 to-orange-500' },
+    { label: 'Escalation Resolution', value: escalationResolutionRate, icon: ShieldAlert, gradient: 'from-amber-500 to-orange-500' },
   ];
 
   return (
@@ -1164,7 +1177,7 @@ function CommunicationView() {
                 <Card key={msg.id || i}>
                   <div className="flex items-center justify-between">
                     <h4 className="text-sm font-bold text-slate-900">{msg.sender_name || msg.from || `User #${msg.sender_id}`}</h4>
-                    <span className="text-xs text-slate-400">{msg.created_at ? formatDate(msg.created_at) : msg.time}</span>
+                    <span className="text-xs text-slate-400">{msg.created_at ? formatDate(msg.created_at) : (msg.timestamp ? formatDate(msg.timestamp) : msg.time)}</span>
                   </div>
                   {msg.subject && <p className="mt-1 text-xs font-semibold text-primary-600">{msg.subject}</p>}
                   <p className="mt-2 text-sm leading-relaxed text-slate-600">{msg.content || msg.text}</p>
@@ -1398,7 +1411,20 @@ function SettingsView() {
     (async () => {
       try {
         const res = await doctorService.getSettings();
-        setSettings(res.data || {});
+        const raw = res.data || {};
+        const profile = raw.profile || {};
+        const preferences = raw.preferences || {};
+        setSettings({
+          name: profile.name || raw.name || '',
+          email: profile.email || raw.email || '',
+          specialty: profile.specialty || raw.specialization || '',
+          hospital_id: profile.hospital_id ?? raw.hospital_id ?? null,
+          available_for_escalation: profile.available_for_escalation ?? raw.available_for_escalation ?? true,
+          notifications_enabled: preferences.notifications_enabled ?? raw.notifications_enabled ?? true,
+          escalation_alerts: preferences.escalation_alerts ?? raw.escalation_alerts ?? true,
+          daily_summary_email: preferences.daily_summary_email ?? raw.daily_summary_email ?? false,
+          auto_accept_appointments: preferences.auto_accept_appointments ?? raw.auto_accept_appointments ?? false,
+        });
       } finally {
         setLoading(false);
       }
@@ -1414,7 +1440,13 @@ function SettingsView() {
     setSaving(true);
     setSaved(false);
     try {
-      await doctorService.updateSettings(settings);
+      await doctorService.updateSettings({
+        available_for_escalation: settings?.available_for_escalation,
+        notifications_enabled: settings?.notifications_enabled,
+        escalation_alerts: settings?.escalation_alerts,
+        daily_summary_email: settings?.daily_summary_email,
+        auto_accept_appointments: settings?.auto_accept_appointments,
+      });
       setSaved(true);
       setTimeout(() => setSaved(false), 3000);
     } finally {
@@ -1433,8 +1465,8 @@ function SettingsView() {
           <div className="space-y-3">
             <SettingsField label="Name" value={settings?.name || settings?.full_name || '—'} />
             <SettingsField label="Email" value={settings?.email || '—'} />
-            <SettingsField label="Specialization" value={settings?.specialization || '—'} />
-            <SettingsField label="Hospital" value={settings?.hospital || settings?.hospital_name || '—'} />
+            <SettingsField label="Specialization" value={settings?.specialty || settings?.specialization || '—'} />
+            <SettingsField label="Hospital" value={settings?.hospital_name || (settings?.hospital_id ? `Hospital #${settings.hospital_id}` : '—')} />
           </div>
         </Card>
 
@@ -1444,8 +1476,13 @@ function SettingsView() {
           <div className="space-y-4">
             <ToggleRow
               label="Available for appointments"
-              checked={settings?.is_available ?? true}
-              onChange={() => handleToggle('is_available')}
+              checked={settings?.available_for_escalation ?? true}
+              onChange={() => handleToggle('available_for_escalation')}
+            />
+            <ToggleRow
+              label="Notifications enabled"
+              checked={settings?.notifications_enabled ?? true}
+              onChange={() => handleToggle('notifications_enabled')}
             />
             <ToggleRow
               label="Receive escalation alerts"
@@ -1453,14 +1490,14 @@ function SettingsView() {
               onChange={() => handleToggle('escalation_alerts')}
             />
             <ToggleRow
-              label="Email notifications"
-              checked={settings?.email_notifications ?? true}
-              onChange={() => handleToggle('email_notifications')}
+              label="Daily summary email"
+              checked={settings?.daily_summary_email ?? false}
+              onChange={() => handleToggle('daily_summary_email')}
             />
             <ToggleRow
-              label="SMS notifications"
-              checked={settings?.sms_notifications ?? false}
-              onChange={() => handleToggle('sms_notifications')}
+              label="Auto-accept appointments"
+              checked={settings?.auto_accept_appointments ?? false}
+              onChange={() => handleToggle('auto_accept_appointments')}
             />
           </div>
 

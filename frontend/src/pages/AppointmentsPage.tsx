@@ -41,7 +41,8 @@ export default function AppointmentsPage() {
       setAppointments(appoRes.data);
       setDoctors(doctorsRes.data);
       if (doctorsRes.data.length > 0) {
-        setNewAppo(prev => ({ ...prev, doctor_id: doctorsRes.data[0].id.toString() }));
+        const firstDoctorId = doctorsRes.data[0].appointment_doctor_id ?? doctorsRes.data[0].id;
+        setNewAppo(prev => ({ ...prev, doctor_id: firstDoctorId.toString() }));
       }
     } catch (error) {
       console.error("Failed to fetch appointments", error);
@@ -53,6 +54,10 @@ export default function AppointmentsPage() {
   const handleSchedule = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
+    if (!newAppo.doctor_id) {
+      toast.error("No doctor is currently available for booking.");
+      return;
+    }
     try {
       await patientService.createAppointment({
           doctor_id: parseInt(newAppo.doctor_id),
@@ -64,12 +69,22 @@ export default function AppointmentsPage() {
       setShowScheduleModal(false);
       fetchData();
     } catch (error) {
-      toast.error("Failed to schedule appointment.");
+      const message = (error as any)?.response?.data?.detail || "Failed to schedule appointment.";
+      toast.error(message);
     }
   };
 
-  const upcoming = appointments.filter(a => new Date(a.appointment_date) >= new Date() && a.status !== 'cancelled');
-  const past = appointments.filter(a => new Date(a.appointment_date) < new Date() || a.status === 'completed');
+  const getAppointmentDate = (a: any) => a.appointment_date || a.date;
+  const upcoming = appointments.filter(a => {
+    const rawDate = getAppointmentDate(a);
+    if (!rawDate) return false;
+    return new Date(rawDate) >= new Date() && a.status !== 'cancelled';
+  });
+  const past = appointments.filter(a => {
+    const rawDate = getAppointmentDate(a);
+    if (!rawDate) return false;
+    return new Date(rawDate) < new Date() || a.status === 'completed';
+  });
 
   return (
     <div className="max-w-[1400px] mx-auto pb-20 space-y-10 animate-fade-in">
@@ -156,8 +171,8 @@ export default function AppointmentsPage() {
                       {past.length > 0 ? past.map((appo, i) => (
                         <tr key={i} className="hover:bg-gray-50/50 transition-colors">
                            <td className="px-6 py-4">
-                              <p className="text-xs font-bold text-gray-900">{new Date(appo.appointment_date).toLocaleDateString()}</p>
-                              <p className="text-[10px] text-gray-400 font-medium">{new Date(appo.appointment_date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
+                              <p className="text-xs font-bold text-gray-900">{new Date(appo.appointment_date || appo.date).toLocaleDateString()}</p>
+                              <p className="text-[10px] text-gray-400 font-medium">{new Date(appo.appointment_date || appo.date).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</p>
                            </td>
                            <td className="px-6 py-4">
                               <div className="flex items-center gap-2">
@@ -271,9 +286,12 @@ export default function AppointmentsPage() {
                     onChange={e => setNewAppo({...newAppo, doctor_id: e.target.value})}
                     className="w-full px-4 py-4 bg-gray-50 border-none rounded-2xl text-sm font-medium focus:ring-2 focus:ring-primary-500/20 outline-none"
                   >
-                    {doctors.map(d => (
-                      <option key={d.id} value={d.id}>{d.name} ({d.specialty || 'OB-GYN'})</option>
-                    ))}
+                    {doctors.map(d => {
+                      const appointmentDoctorId = d.appointment_doctor_id ?? d.id;
+                      return (
+                        <option key={d.id} value={appointmentDoctorId}>{d.name} ({d.specialty || 'OB-GYN'})</option>
+                      );
+                    })}
                   </select>
                 </div>
 
@@ -338,8 +356,9 @@ export default function AppointmentsPage() {
 
 // Sub-components
 function AppointmentCard({ appo }: { appo: any }) {
-  const date = new Date(appo.appointment_date);
-  const isTelehealth = appo.appointment_type === 'TELEMEDICINE';
+  const date = new Date(appo.appointment_date || appo.date);
+  const appointmentType = (appo.appointment_type || appo.type || '').toUpperCase();
+  const isTelehealth = appointmentType === 'TELEMEDICINE' || appointmentType === 'VIDEO_CALL';
 
   return (
     <div className="card p-6 flex flex-col group hover:shadow-xl transition-all border-l-4 border-l-primary-500">

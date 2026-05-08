@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../utils/helpers';
 import { hospitalAdminService } from '../services/endpoints';
+import { toast } from 'react-hot-toast';
 
 const tabs = [
   { id: 'all', label: 'All Patients' },
@@ -77,15 +78,40 @@ export default function HospitalAdminPatients() {
     e.preventDefault();
     try {
       await hospitalAdminService.addPatient(newPatient);
-      alert(`Patient ${newPatient.full_name} registered successfully!`);
+      toast.success(`Patient ${newPatient.full_name} registered successfully.`);
       setShowAddModal(false);
       setNewPatient({ full_name: '', email: '', phone: '', trimester: 'first' });
       fetchPatients();
     } catch (error) {
       console.error("Failed to add patient", error);
-      alert("Failed to register patient. Please try again.");
+      toast.error("Failed to register patient. Please try again.");
     }
   };
+
+  const handleAssignDoctor = async (patientId: number, doctorId?: number) => {
+    try {
+      const doctorPool = await hospitalAdminService.listStaff();
+      const selectedDoctor = doctorId || doctorPool.data?.[0]?.appointment_doctor_id || doctorPool.data?.[0]?.id;
+      if (!selectedDoctor) {
+        toast.error('No doctors available for assignment.');
+        return;
+      }
+      await hospitalAdminService.assignDoctor(patientId, Number(selectedDoctor));
+      toast.success('Doctor assigned successfully.');
+      fetchPatients();
+    } catch (error) {
+      console.error('Failed to assign doctor', error);
+      toast.error('Failed to assign doctor.');
+    }
+  };
+
+  const visiblePatients = React.useMemo(() => {
+    if (activeTab === 'high-risk') return patients.filter((p) => String(p.risk_level).toUpperCase() === 'HIGH');
+    if (activeTab === 'admissions') return patients.filter((p) => !!p.last_active && (Date.now() - new Date(p.last_active).getTime()) < 7 * 24 * 60 * 60 * 1000);
+    if (activeTab === 'discharged') return patients.filter((p) => String(p.trimester).toLowerCase().includes('postpartum'));
+    if (activeTab === 'tracking') return patients.filter((p) => !String(p.trimester).toLowerCase().includes('postpartum'));
+    return patients;
+  }, [patients, activeTab]);
 
   return (
     <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-6">
@@ -210,7 +236,7 @@ export default function HospitalAdminPatients() {
                       </td>
                     </tr>
                   ))
-                ) : patients.length === 0 ? (
+                ) : visiblePatients.length === 0 ? (
                   <tr>
                     <td colSpan={6} className="px-6 py-12 text-center text-gray-500">
                       <div className="flex flex-col items-center gap-2">
@@ -220,7 +246,7 @@ export default function HospitalAdminPatients() {
                     </td>
                   </tr>
                 ) : (
-                  patients.map((patient) => (
+                  visiblePatients.map((patient) => (
                     <motion.tr 
                       layout
                       initial={{ opacity: 0 }}
@@ -255,7 +281,10 @@ export default function HospitalAdminPatients() {
                             <span className="text-xs text-gray-600">Assigned</span>
                           </div>
                         ) : (
-                          <button className="text-xs text-primary-600 font-medium hover:underline flex items-center gap-1">
+                          <button
+                            onClick={() => handleAssignDoctor(patient.id)}
+                            className="text-xs text-primary-600 font-medium hover:underline flex items-center gap-1"
+                          >
                             <UserPlus className="w-3 h-3" /> Assign Doctor
                           </button>
                         )}
@@ -286,7 +315,7 @@ export default function HospitalAdminPatients() {
         
         {/* Pagination placeholder */}
         <div className="px-6 py-4 border-t border-gray-50 flex items-center justify-between bg-gray-50/30">
-          <p className="text-xs text-gray-500">Showing {patients.length} of {patients.length} patients</p>
+          <p className="text-xs text-gray-500">Showing {visiblePatients.length} of {patients.length} patients</p>
           <div className="flex items-center gap-2">
             <button className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-400 cursor-not-allowed">Previous</button>
             <button className="px-3 py-1 bg-white border border-gray-200 rounded-lg text-xs font-medium text-gray-600 hover:bg-gray-50">Next</button>

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../utils/helpers';
 import { hospitalAdminService } from '../services/endpoints';
+import { toast } from 'react-hot-toast';
 
 const tabs = [
   { id: 'Doctors', label: 'Doctors' },
@@ -32,6 +33,8 @@ export default function HospitalAdminStaff() {
   });
   const [workloadMatrix, setWorkloadMatrix] = React.useState<any[]>([]);
   const [complianceReport, setComplianceReport] = React.useState<any>(null);
+  const [departmentLoad, setDepartmentLoad] = React.useState<any[]>([]);
+  const [departments, setDepartments] = React.useState<any[]>([]);
 
   const fetchStaff = async () => {
     setLoading(true);
@@ -41,12 +44,16 @@ export default function HospitalAdminStaff() {
       setStaff(res.data);
       
       // Fetch operational data
-      const [workloadRes, complianceRes] = await Promise.all([
+      const [workloadRes, complianceRes, deptLoadRes, departmentsRes] = await Promise.all([
         hospitalAdminService.getWorkloadMatrix(),
-        hospitalAdminService.getPerformanceMetrics()
+        hospitalAdminService.getComplianceReport(),
+        hospitalAdminService.getDeptLoadMatrix(),
+        hospitalAdminService.listDepartments(),
       ]);
       setWorkloadMatrix(workloadRes.data);
       setComplianceReport(complianceRes.data);
+      setDepartmentLoad(deptLoadRes.data || []);
+      setDepartments(departmentsRes.data || []);
     } catch (error) {
       console.error("Failed to fetch staff", error);
     } finally {
@@ -58,23 +65,24 @@ export default function HospitalAdminStaff() {
     e.preventDefault();
     try {
       await hospitalAdminService.addStaff(newStaff);
-      alert(`Staff member ${newStaff.name} added successfully!`);
+      toast.success(`Staff member ${newStaff.name} added successfully.`);
       setShowAddModal(false);
       setNewStaff({ name: '', email: '', specialty: 'OB-GYN', license: '' });
       fetchStaff();
     } catch (error) {
       console.error("Failed to add staff", error);
-      alert("Failed to add staff member.");
+      toast.error("Failed to add staff member.");
     }
   };
 
   const handleRemoveStaff = async (id: number) => {
-    if (!confirm("Are you sure you want to remove this staff member?")) return;
     try {
       await hospitalAdminService.removeStaff(id);
+      toast.success("Staff member removed.");
       fetchStaff();
     } catch (error) {
       console.error("Failed to remove staff", error);
+      toast.error("Failed to remove staff member.");
     }
   };
 
@@ -144,7 +152,7 @@ export default function HospitalAdminStaff() {
               icon={Building2} 
               color="blue" 
             />
-            <StaffStatCard label="Avg Response" value={complianceReport?.sla_response_time || "12m"} icon={Clock} color="purple" />
+            <StaffStatCard label="Avg Response" value={`${complianceReport?.avg_response_time_min ?? 0}m`} icon={Clock} color="purple" />
           </div>
 
           {/* Search & Actions */}
@@ -277,18 +285,68 @@ export default function HospitalAdminStaff() {
             </div>
           </div>
         </div>
+      ) : activeTab === 'Schedules' ? (
+        <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+          <h3 className="text-lg font-bold text-gray-900 mb-4">Workload Schedule Matrix</h3>
+          {workloadMatrix.length === 0 ? (
+            <p className="text-sm text-gray-500">No workload schedule data available.</p>
+          ) : (
+            <div className="space-y-3">
+              {workloadMatrix.map((row, idx) => (
+                <div key={idx} className="flex items-center justify-between rounded-xl border border-gray-100 bg-gray-50 p-3">
+                  <div>
+                    <p className="text-sm font-bold text-gray-900">{row.doctor_name || row.name || `Doctor #${row.doctor_id}`}</p>
+                    <p className="text-xs text-gray-500">{row.department || row.specialty || 'General'}</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm font-bold text-gray-900">{row.case_count ?? row.workload ?? 0} cases</p>
+                    <p className="text-xs text-gray-500">{row.availability || 'Active'}</p>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      ) : activeTab === 'Departments' ? (
+        <div className="grid gap-4 md:grid-cols-2">
+          {departments.map((dept) => (
+            <div key={dept.id} className="bg-white rounded-2xl border border-gray-100 p-5 shadow-sm">
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-widest">{dept.id}</p>
+              <h4 className="mt-1 text-lg font-bold text-gray-900">{dept.name}</h4>
+              <p className="mt-1 text-sm text-gray-500">Head: {dept.head || 'Unassigned'}</p>
+              <p className="mt-2 text-sm font-semibold text-gray-700">{dept.staff_count || 0} staff</p>
+            </div>
+          ))}
+          {departments.length === 0 && (
+            <div className="md:col-span-2 bg-white rounded-2xl border border-gray-100 p-8 text-center text-sm text-gray-500">
+              No department data available.
+            </div>
+          )}
+        </div>
       ) : (
-        <div className="bg-white rounded-2xl border border-gray-100 p-20 text-center shadow-sm">
-          <div className="flex flex-col items-center gap-3">
-            <Building2 className="w-12 h-12 text-primary-100" />
-            <h3 className="text-lg font-bold text-gray-900">{activeTab} View</h3>
-            <p className="text-sm text-gray-500 max-w-sm mx-auto">
-              This module is currently being optimized for high-volume facility management. 
-              {activeTab === 'Schedules' ? ' Real-time roster synchronization is pending.' : ' Department-wide analytics will be available shortly.'}
-            </p>
-            <button className="mt-4 px-6 py-2 bg-gray-900 text-white rounded-xl text-sm font-bold hover:bg-black transition-all shadow-lg">
-              Contact Systems Administrator
-            </button>
+        <div className="grid gap-4 md:grid-cols-2">
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">Compliance Snapshot</h3>
+            <div className="space-y-2 text-sm text-gray-600">
+              <p>Average response time: <span className="font-bold text-gray-900">{complianceReport?.avg_response_time_min ?? 0}m</span></p>
+              <p>SLA compliance: <span className="font-bold text-gray-900">{complianceReport?.sla_compliance_rate ?? 0}%</span></p>
+              <p>SLA target: <span className="font-bold text-gray-900">{complianceReport?.sla_target_min ?? 15}m</span></p>
+            </div>
+          </div>
+          <div className="bg-white rounded-2xl border border-gray-100 p-6 shadow-sm">
+            <h3 className="text-lg font-bold text-gray-900 mb-3">Department Load</h3>
+            <div className="space-y-2">
+              {departmentLoad.length === 0 ? (
+                <p className="text-sm text-gray-500">No departmental load data.</p>
+              ) : (
+                departmentLoad.map((dept, idx) => (
+                  <div key={idx} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">{dept.name || dept.department}</span>
+                    <span className="font-bold text-gray-900">{dept.active_escalations ?? dept.count ?? 0}</span>
+                  </div>
+                ))
+              )}
+            </div>
           </div>
         </div>
       )}
