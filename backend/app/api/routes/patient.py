@@ -464,7 +464,7 @@ async def get_daily_goals(
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
     goals_doc = None
-    if mongo:
+    if mongo is not None:
         goals_doc = await mongo.daily_goals.find_one({"user_id": user.id, "date": today})
 
     if goals_doc:
@@ -474,7 +474,7 @@ async def get_daily_goals(
             select(HealthLog).where(
                 HealthLog.user_id == user.id,
                 HealthLog.log_date >= datetime.now(timezone.utc).date()
-            )
+            ).limit(1)
         )).scalar_one_or_none()
 
         goals = [
@@ -510,7 +510,7 @@ async def update_daily_goal(
     user: User = Depends(_current_user),
 ):
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Goals service unavailable")
 
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
@@ -687,7 +687,7 @@ async def get_settings(
 ):
     mongo = get_mongo_db()
     prefs = None
-    if mongo:
+    if mongo is not None:
         prefs = await mongo.user_settings.find_one({"user_id": user.id})
 
     return {
@@ -744,7 +744,7 @@ async def update_settings(
     await db.commit()
 
     mongo = get_mongo_db()
-    if mongo:
+    if mongo is not None:
         prefs_update = {}
         for field in ["notifications_enabled", "reminder_time", "language", "theme",
                       "share_data_with_doctor", "emergency_contact_name", "emergency_contact_phone"]:

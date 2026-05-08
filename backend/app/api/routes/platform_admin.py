@@ -810,7 +810,7 @@ async def get_communication_center(
     mongo = get_mongo_db()
 
     announcements = []
-    if mongo:
+    if mongo is not None:
         cursor = mongo.platform_announcements.find().sort("created_at", -1).limit(20)
         async for doc in cursor:
             announcements.append({
@@ -847,7 +847,7 @@ async def create_announcement(
     _require_platform_admin(user)
     from app.core.database import get_mongo_db
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Service unavailable")
 
     announcement = {
@@ -878,7 +878,7 @@ async def get_audit_logs(
     mongo = get_mongo_db()
 
     logs = []
-    if mongo:
+    if mongo is not None:
         cursor = mongo.audit_logs.find().sort("timestamp", -1).limit(limit)
         async for doc in cursor:
             logs.append({
@@ -941,7 +941,7 @@ async def get_support_tickets(
     mongo = get_mongo_db()
 
     tickets = []
-    if mongo:
+    if mongo is not None:
         cursor = mongo.support_tickets.find().sort("created_at", -1).limit(50)
         async for doc in cursor:
             tickets.append({
@@ -979,7 +979,7 @@ async def create_support_ticket(
     _require_platform_admin(user)
     from app.core.database import get_mongo_db
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Service unavailable")
 
     ticket = {
@@ -1064,7 +1064,7 @@ async def get_platform_settings(
     mongo = get_mongo_db()
 
     settings = {}
-    if mongo:
+    if mongo is not None:
         doc = await mongo.platform_settings.find_one({"scope": "global"})
         if doc:
             settings = {k: v for k, v in doc.items() if k != "_id"}
@@ -1103,7 +1103,7 @@ async def update_platform_settings(
     _require_platform_admin(user)
     from app.core.database import get_mongo_db
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Service unavailable")
 
     await mongo.platform_settings.update_one(

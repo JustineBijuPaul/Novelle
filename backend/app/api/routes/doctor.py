@@ -855,7 +855,7 @@ async def get_doctor_messages(
 ):
     mongo = get_mongo_db()
     messages = []
-    if mongo:
+    if mongo is not None:
         cursor = mongo.doctor_messages.find(
             {"$or": [{"sender_id": user.id}, {"receiver_id": user.id}]}
         ).sort("timestamp", -1).limit(50)
@@ -884,7 +884,7 @@ async def send_doctor_message(
     user: User = Depends(_current_user),
 ):
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Messaging service unavailable")
 
     msg = {
@@ -911,7 +911,7 @@ async def get_doctor_tasks(
     mongo = get_mongo_db()
     tasks = []
 
-    if mongo:
+    if mongo is not None:
         cursor = mongo.doctor_tasks.find({"doctor_id": user.id}).sort("created_at", -1)
         async for doc in cursor:
             tasks.append({
@@ -963,7 +963,7 @@ async def create_doctor_task(
     user: User = Depends(_current_user),
 ):
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Task service unavailable")
 
     task = {
@@ -987,7 +987,7 @@ async def update_task_status(
     user: User = Depends(_current_user),
 ):
     mongo = get_mongo_db()
-    if not mongo:
+    if mongo is None:
         raise HTTPException(status_code=503, detail="Task service unavailable")
 
     from bson import ObjectId
@@ -1013,7 +1013,7 @@ async def get_doctor_settings(
 
     mongo = get_mongo_db()
     prefs = None
-    if mongo:
+    if mongo is not None:
         prefs = await mongo.doctor_settings.find_one({"doctor_id": user.id})
 
     return {
@@ -1058,7 +1058,7 @@ async def update_doctor_settings(
             await db.commit()
 
     mongo = get_mongo_db()
-    if mongo:
+    if mongo is not None:
         prefs_update = {}
         for field in ["notifications_enabled", "escalation_alerts", "daily_summary_email", "auto_accept_appointments"]:
             val = getattr(data, field, None)
