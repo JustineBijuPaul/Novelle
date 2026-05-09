@@ -27,7 +27,7 @@ const CATEGORY_CONFIG: Record<string, { icon: typeof Target; color: string; bg: 
   nutrition: { icon: Apple, color: 'text-emerald-600', bg: 'bg-emerald-50' },
   exercise: { icon: Dumbbell, color: 'text-blue-600', bg: 'bg-blue-50' },
   medication: { icon: Pill, color: 'text-purple-600', bg: 'bg-purple-50' },
-  mental: { icon: Brain, color: 'text-amber-600', bg: 'bg-amber-50' },
+  wellness: { icon: Brain, color: 'text-amber-600', bg: 'bg-amber-50' },
   baby: { icon: Baby, color: 'text-pink-600', bg: 'bg-pink-50' },
 };
 

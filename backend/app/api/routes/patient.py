@@ -159,13 +159,14 @@ async def get_my_pregnancy(
         .order_by(HealthLog.log_date).limit(20)
     )).all()
 
-    days_remaining = (profile.due_date - datetime.now(timezone.utc).date()).days if profile.due_date else None
+    # Fix: Convert due_date to date for comparison with current date
+    days_remaining = (profile.due_date.date() - datetime.now(timezone.utc).date()).days if profile.due_date else None
 
     return {
         "profile": {
             "age": profile.age,
             "pregnancy_week": week,
-            "trimester": profile.trimester,
+            "trimester": 1 if profile.trimester == "first" else 2 if profile.trimester == "second" else 3,
             "due_date": profile.due_date.isoformat() if profile.due_date else None,
             "days_remaining": days_remaining,
             "blood_group": profile.blood_group,
@@ -178,7 +179,7 @@ async def get_my_pregnancy(
             "thyroid_disorder": profile.thyroid_disorder,
             "previous_pregnancies": profile.previous_pregnancies,
             "past_complications": profile.past_complications,
-            "profile_completion": profile.profile_completion_score,
+            "profile_completion": profile.profile_completion_score or 0,
         },
         "milestone": milestone,
         "weight_trend": [
@@ -417,6 +418,20 @@ async def get_ai_insights(
         sleep_values = [h.sleep_quality for h in recent_health if h.sleep_quality]
         avg_sleep = round(sum(sleep_values) / len(sleep_values), 1) if sleep_values else None
 
+    def _risk_to_float(level: str | float | None) -> float:
+        if isinstance(level, (int, float)):
+            return float(level)
+        if not level:
+            return 0.15  # Default to low if level is missing but we have a record
+        l_str = str(level).strip().upper()
+        if l_str in ("HIGH", "H"):
+            return 0.85
+        if l_str in ("MEDIUM", "M", "MED"):
+            return 0.45
+        if l_str in ("LOW", "L", ""):
+            return 0.15
+        return 0.15 # Fallback to low
+
     return {
         "risk_summary": {
             "physical": latest_risk.physical_risk_level if latest_risk else "LOW",
@@ -425,19 +440,19 @@ async def get_ai_insights(
             "scored_at": latest_risk.scored_at.isoformat() if latest_risk else None,
         },
         "sub_risks": {
-            "depression": latest_risk.depression_risk if latest_risk else None,
-            "anxiety": latest_risk.anxiety_risk if latest_risk else None,
-            "hypertension": latest_risk.hypertension_risk if latest_risk else None,
-            "diabetes": latest_risk.diabetes_risk if latest_risk else None,
-            "anemia": latest_risk.anemia_risk if latest_risk else None,
-            "preterm": latest_risk.preterm_risk if latest_risk else None,
+            "depression": _risk_to_float(latest_risk.depression_risk) if latest_risk else 0.0,
+            "anxiety": _risk_to_float(latest_risk.anxiety_risk) if latest_risk else 0.0,
+            "hypertension": _risk_to_float(latest_risk.hypertension_risk) if latest_risk else 0.0,
+            "diabetes": _risk_to_float(latest_risk.diabetes_risk) if latest_risk else 0.0,
+            "anemia": _risk_to_float(latest_risk.anemia_risk) if latest_risk else 0.0,
+            "preterm": _risk_to_float(latest_risk.preterm_risk) if latest_risk else 0.0,
         },
         "alerts": alerts,
         "recommendations": recommendations,
         "wellness_score": wellness_score,
         "weekly_stats": {
-            "avg_bp_systolic": avg_bp_systolic,
-            "avg_sleep_quality": avg_sleep,
+            "avg_bp_systolic": avg_bp_systolic if avg_bp_systolic is not None else "—",
+            "avg_sleep_quality": avg_sleep if avg_sleep is not None else "—",
             "health_logs_count": len(recent_health),
             "mental_assessments_count": len(recent_mental),
         },

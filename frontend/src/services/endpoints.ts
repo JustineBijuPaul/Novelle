@@ -332,14 +332,7 @@ export const patientService = {
   // Baby Growth
   getBabyGrowth: (week?: number) => api.get<any>(`/patient/baby-growth${week ? `?week=${week}` : ''}`),
   getWellnessHub: () => api.get<any>('/patient/wellness/hub'),
-};
 
-export const aiService = {
-  chat: (message: string) => api.post<any>('/ai/chat', { message }),
-  getStatus: () => api.get<any>('/ai/status'),
-};
-
-export const patientServiceAppointments = {
   // Appointments
   listAppointments: () => api.get<any[]>('/patient/appointments'),
   createAppointment: (data: any) => api.post<any>('/patient/appointments', data),
@@ -351,8 +344,6 @@ export const patientServiceAppointments = {
   // Daily Goals
   getDailyGoals: () => api.get<any>('/patient/daily-goals'),
   updateGoal: (goalId: string, completed: boolean) => api.post('/patient/daily-goals/update', { goal_id: goalId, completed }),
-  // Wellness Hub
-  getWellnessHub: () => api.get<any>('/patient/wellness/hub'),
   // Emergency Support
   getEmergencyInfo: () => api.get<any>('/patient/emergency'),
   triggerSOS: (reason: string, severity?: string) => api.post('/patient/emergency/sos', { reason, severity: severity || 'HIGH' }),
@@ -360,6 +351,12 @@ export const patientServiceAppointments = {
   getSettings: () => api.get<any>('/patient/settings'),
   updateSettings: (data: any) => api.put('/patient/settings', data),
 };
+
+export const aiService = {
+  chat: (message: string) => api.post<any>('/ai/chat', { message }),
+  getStatus: () => api.get<any>('/ai/status'),
+};
+
 
 export const mlopsService = {
   listModels: () => 
